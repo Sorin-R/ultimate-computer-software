@@ -1,0 +1,1045 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum ArticleStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PUBLISHED
+  SCHEDULED
+  HIDDEN
+}
+
+enum CategoryStatus {
+  ACTIVE
+  PENDING
+}
+
+enum DataRequestType {
+  ACCESS
+  DOWNLOAD
+  DELETE
+  PORTABILITY
+  OPTOUT
+}
+
+enum DataRequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DENIED
+}
+
+enum CommentStatus {
+  VISIBLE
+  HIDDEN // hidden by moderator
+  DELETED // soft-deleted by author (kept to preserve thread structure)
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  MISINFORMATION
+  OFF_TOPIC
+  OTHER
+}
+
+enum ContentReportTargetType {
+  ARTICLE
+  COMMENT
+  USER
+  DM
+}
+
+enum ContentReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ACTION_TAKEN
+  NO_VIOLATION_FOUND
+  DISMISSED
+}
+
+enum PolicyComplianceActionType {
+  WARNING
+  CONTENT_REMOVED
+  TEMP_RESTRICTION
+  PERMANENT_BAN
+  APPEAL_ACCEPTED
+  APPEAL_REJECTED
+}
+
+enum PolicyComplianceStatus {
+  ACTIVE
+  RESOLVED
+}
+
+enum NotificationType {
+  NEW_ARTICLE // a creator I follow published an article
+  NEW_SUBSCRIBER // someone followed me
+}
+
+enum ReactionEmoji {
+  LIKE // 👍
+  LOVE // ❤️
+  WOW // 🤯
+  THINK // 🤔
+  HUNDRED // 💯  K7
+  QUESTION // ❓  K7
+}
+
+// K3: Article type — distinguishes regular articles from AMA threads and
+// lightweight standalone discussion posts (K10).
+enum ArticleType {
+  ARTICLE
+  AMA
+  DISCUSSION
+}
+
+enum ArticleAudioStatus {
+  NONE
+  PROCESSING
+  READY
+  FAILED
+}
+
+// K4: Lifecycle of a reader-submitted article request / wishlist item.
+enum ArticleRequestStatus {
+  OPEN
+  CLAIMED
+  FULFILLED
+  CLOSED
+}
+
+// R4: Achievement badges awarded to users for reading milestones.
+// `code` doubles as the badge identity AND the threshold key (e.g. STREAK_7).
+enum BadgeCode {
+  // R4: Reader streak / read count badges
+  FIRST_READ // First article read
+  CURIOUS_MIND // 10 articles read
+  KNOWLEDGE_SEEKER // 100 articles read
+  STREAK_3 // 3-day reading streak
+  STREAK_7 // 7-day reading streak
+  STREAK_30 // 30-day reading streak
+  STREAK_100 // 100-day reading streak
+  COMMUNITY_BUILDER // Referral badge for referrer + referred user
+
+  // K8: Engagement badges (readers)
+  FIRST_COMMENT // Posted first comment
+  CONVERSATIONALIST // Posted 10 comments
+  DISCUSSION_LEADER // Posted 50 comments
+  FIRST_BOOKMARK // First bookmark saved
+  BOOKWORM // 25 bookmarks saved
+  SUPPORTER // Subscribed to 5 authors
+
+  // K8: Creator badges (authors)
+  FIRST_ARTICLE // First published article
+  PROLIFIC_WRITER // 10 published articles
+  MASTER_AUTHOR // 50 published articles
+  VERIFIED_AUTHOR // Manually granted by admin
+  TRENDING // Single article hit 100 views
+  VIRAL // Single article hit 1000 views
+  TOP_CURATOR // Created reading list with 10+ articles
+}
+
+enum ReferralStatus {
+  REGISTERED
+  REWARDED
+}
+
+model User {
+  id                       String   @id @default(cuid())
+  name                     String
+  email                    String   @unique
+  passwordHash             String
+  role                     Role     @default(USER)
+  isActive                 Boolean  @default(true)
+  emailVerified            Boolean  @default(true)
+  referralCode             String?  @unique
+  twoFactorEnabled         Boolean  @default(false)
+  twoFactorSecretEncrypted String?
+  twoFactorRecoveryCodes   String[] @default([])
+  twoFactorSetupSecretEncrypted String?
+  twoFactorSetupRecoveryCodes   String[] @default([])
+
+  // URL-safe unique handle used in /author/:username routes.
+  username  String? @unique
+
+  // Public author profile fields. Optional — not every account is a creator.
+  bio       String? @db.Text
+  avatarUrl String?
+
+  // Optional pinned article shown at the top of the user's public author
+  // page. SetNull on article delete so the FK never breaks.
+  pinnedArticleId String?
+  pinnedArticle   Article? @relation("UserPinnedArticle", fields: [pinnedArticleId], references: [id], onDelete: SetNull)
+
+  // K3: Whether this user is a verified creator (admin-granted badge).
+  isVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles               Article[]
+  categoriesCreated      Category[]
+  dataRequests           DataRequest[]
+  reviews                Review[]
+  views                  ArticleView[]
+  comments               Comment[]
+  commentLikes           CommentLike[]
+  commentReactions       CommentReaction[]
+  commentReportsFiled    CommentReport[]   @relation("CommentReportsFiled")
+  commentReportsReviewed CommentReport[]   @relation("CommentReportsReviewed")
+
+  // Subscriptions: outgoing (people I follow) + incoming (my followers).
+  subscriptionsMade     Subscription[] @relation("SubsMade")
+  subscriptionsReceived Subscription[] @relation("SubsReceived")
+
+  // Creator blocks: as the creator who issued a block + as the blocked user.
+  blocksIssued       CreatorBlock[] @relation("BlocksIssuedByCreator")
+  blockedByCreators  CreatorBlock[] @relation("BlocksAgainstUser")
+  userBlocksIssued   UserBlock[]    @relation("UserBlocksIssued")
+  userBlocksReceived UserBlock[]    @relation("UserBlocksReceived")
+
+  notifications Notification[]
+  bookmarks     Bookmark[]
+  reactions     ArticleReaction[]
+  articleSeries ArticleSeries[]
+
+  // K9: Tags this user follows.
+  tagFollows TagFollow[]
+
+  // K4: Article requests.
+  articleRequestsMade    ArticleRequest[]     @relation("RequestsMade")
+  articleRequestsClaimed ArticleRequest[]     @relation("RequestsClaimed")
+  articleRequestVotes    ArticleRequestVote[]
+
+  // K6: Reading lists created by this user + lists they follow.
+  readingLists       ReadingList[]
+  readingListFollows ReadingListFollow[]
+
+  // K10: Poll votes.
+  pollVotes PollVote[]
+
+  // R4: Earned reading badges + cached streak summary.
+  badges               UserBadge[]
+  streakStats          UserStreakStats?
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens  PasswordResetToken[]
+  refreshSessions      RefreshSession[]
+  policyActions        PolicyComplianceLog[] @relation("PolicyActionsForUser")
+  policyActionsCreated PolicyComplianceLog[] @relation("PolicyActionsCreatedBy")
+  adminActivityLogs    AdminActivityLog[]    @relation("AdminActivityActor")
+  reportsFiled         ContentReport[]       @relation("ReportsFiled")
+  reportsHandled       ContentReport[]       @relation("ReportsHandledBy")
+  reportsAgainst       ContentReport[]       @relation("ReportsAgainstUser")
+  referralsMade        Referral[]            @relation("ReferralsMadeBy")
+  referralAttributions Referral[]            @relation("ReferralAttributedTo")
+
+  @@map("users")
+}
+
+model Article {
+  id                String        @id @default(cuid())
+  title             String
+  slug              String        @unique
+  body              String
+  excerpt           String?
+  mainKeyword       String
+  authorName        String
+  originalSourceUrl String?
+  imageUrl          String?
+  audioUrl          String?
+  audioStatus       ArticleAudioStatus @default(NONE)
+  audioGeneratedAt  DateTime?
+  audioError        String?            @db.Text
+  status            ArticleStatus @default(DRAFT)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  publishedAt       DateTime?
+
+  // C2: Scheduled publishing — set to a future datetime; cron flips to PUBLISHED
+  scheduledAt DateTime?
+
+  // C3: Article series position (null = not part of a series)
+  seriesId       String?
+  seriesPosition Int?
+
+  // K3: Article type (ARTICLE, AMA, DISCUSSION). AMA threads are time-bounded
+  // and optionally pinned to the homepage. DISCUSSION = lightweight post (K10).
+  articleType    ArticleType @default(ARTICLE)
+  amaExpiresAt   DateTime? // null unless articleType = AMA
+  isPinnedToHome Boolean     @default(false)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  tags              ArticleTag[]
+  reviews           Review[]
+  views             ArticleView[]
+  comments          Comment[]
+  bookmarks         Bookmark[]
+  reactions         ArticleReaction[]
+  versions          ArticleVersion[]
+  seriesMemberships ArticleSeriesMember[]
+  polls             Poll[]
+  readingListItems  ReadingListItem[]
+  fulfilledRequests ArticleRequest[]
+
+  // Reverse side of User.pinnedArticle so SetNull works when an article is
+  // deleted. Multiple users CAN'T pin the same article in practice (each user
+  // pins their own work), but we model it as 1-many to keep schema simple.
+  pinnedBy User[] @relation("UserPinnedArticle")
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([userId])
+  @@index([publishedAt])
+  @@index([status, publishedAt])
+  @@index([status, categoryId, publishedAt])
+  @@map("articles")
+}
+
+model Category {
+  id              String         @id @default(cuid())
+  name            String         @unique
+  slug            String         @unique
+  description     String?
+  status          CategoryStatus @default(ACTIVE)
+  createdByUserId String?
+  createdByUser   User?          @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  articles        Article[]
+  tags            Tag[]
+
+  @@map("categories")
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  slug        String       @unique
+  // M1: Optional editorial description shown on tag archive pages and
+  // used in SEO metadata/schema to signal E-E-A-T for tag topics.
+  description String?      @db.Text
+  // The category this tag belongs to. Optional so user-created tags can exist
+  // without an assigned category until a moderator curates them.
+  categoryId  String?
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  articles    ArticleTag[]
+  follows     TagFollow[]
+
+  @@index([categoryId])
+  @@map("tags")
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@map("article_tags")
+}
+
+// User-submitted star rating (1–5) plus optional written feedback for an article.
+// One review per (article, user) — second submission updates the existing one.
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int // 1..5
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, userId])
+  @@index([articleId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// Tracks article views/visits with time-on-page engagement data
+model ArticleView {
+  id        String  @id @default(cuid())
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String? // null for anonymous visitors
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  timeSpentSeconds Int      @default(0) // actual seconds spent on page
+  timeRange        String // "0-1", "1-5", "5+" (minutes spent on page)
+  createdAt        DateTime @default(now())
+
+  @@index([articleId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([articleId, createdAt])
+  @@map("article_views")
+}
+
+model AdSenseConfig {
+  id          String   @id @default(cuid())
+  displayName String   @unique
+  code        String
+  placement   String // 'homepage', 'article', 'dashboard', 'sidebar'
+  isActive    Boolean  @default(true)
+  adType      String   @default("display") // 'display', 'in-feed', 'matched-content'
+  width       Int?
+  height      Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([placement])
+  @@index([isActive])
+  @@map("adsense_configs")
+}
+
+model DataRequest {
+  id             String            @id @default(cuid())
+  requestType    DataRequestType
+  email          String
+  fullName       String
+  details        String?
+  status         DataRequestStatus @default(PENDING)
+  confirmationId String            @unique
+  processedAt    DateTime?
+  processedBy    String?
+  notes          String?
+  attachments    String[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+  @@map("data_requests")
+}
+
+model Ad {
+  id          String   @id @default(cuid())
+  placement   String // "homepage", "article", "category", "dashboard", "sidebar"
+  deviceTarget AdDeviceTarget @default(ALL)
+  displayName String
+  content     String // HTML content of the ad
+  width       Int? // Width in pixels
+  height      Int? // Height in pixels
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([placement])
+  @@index([isActive])
+  @@index([placement, isActive, deviceTarget])
+}
+
+enum AdDeviceTarget {
+  ALL
+  DESKTOP
+  MOBILE
+}
+
+// User-submitted comments on articles. Supports threading (parent/child),
+// likes, reports, soft-deletion (so child comments stay visible) and
+// moderator-driven hiding. The `status` field controls what is rendered to
+// readers; `editedAt` is set whenever the author edits their own comment.
+model Comment {
+  id        String        @id @default(cuid())
+  content   String        @db.Text
+  status    CommentStatus @default(VISIBLE)
+  editedAt  DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Self-relation for threaded replies. SetNull on parent delete keeps
+  // descendants visible even when an ancestor is hard-removed.
+  parentId String?
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  Comment[] @relation("CommentReplies")
+
+  likes     CommentLike[]
+  reports   CommentReport[]
+  reactions CommentReaction[]
+
+  @@index([articleId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("comments")
+}
+
+// One like per (comment, user). Toggling re-creates / deletes the row.
+model CommentLike {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([commentId])
+  @@map("comment_likes")
+}
+
+// One row per (subscriber, creator). `mutedAt` is set when the subscriber
+// soft-mutes the creator (U8) — they keep the follow but the creator's
+// articles stop surfacing in their personalised feeds and they stop getting
+// notifications for them. The creator never knows.
+model Subscription {
+  id           String    @id @default(cuid())
+  subscriberId String
+  creatorId    String
+  mutedAt      DateTime?
+  createdAt    DateTime  @default(now())
+
+  subscriber User @relation("SubsMade", fields: [subscriberId], references: [id], onDelete: Cascade)
+  creator    User @relation("SubsReceived", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriberId, creatorId])
+  @@index([creatorId])
+  @@index([subscriberId])
+  @@map("subscriptions")
+}
+
+// Creator-issued block on a specific user. Blocking is stronger than removing
+// a subscription: when a creator blocks a user, any existing subscription is
+// also deleted and the user can't re-follow until the block is lifted.
+model CreatorBlock {
+  creatorId     String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+
+  creator     User @relation("BlocksIssuedByCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  blockedUser User @relation("BlocksAgainstUser", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@id([creatorId, blockedUserId])
+  @@index([creatorId])
+  @@map("creator_blocks")
+}
+
+// General user-to-user block list used by trust/safety controls. This is
+// independent from creator follow-blocks so existing creator workflows keep
+// working while account-level blocking applies platform-wide.
+model UserBlock {
+  blockerUserId String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+
+  blockerUser User @relation("UserBlocksIssued", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blockedUser User @relation("UserBlocksReceived", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@id([blockerUserId, blockedUserId])
+  @@index([blockerUserId])
+  @@index([blockedUserId])
+  @@map("user_blocks")
+}
+
+// Password reset token flow. Raw tokens are never stored, only hashes.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// Email verification token flow for account activation after registration.
+// Raw tokens are never stored, only SHA-256 hashes.
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+// Stateful refresh-token sessions. The server stores only token hashes and
+// rotates each refresh token on use to enable revocation and replay detection.
+model RefreshSession {
+  id                  String          @id
+  userId              String
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash           String          @unique
+  userAgent           String?
+  ipAddress           String?
+  expiresAt           DateTime
+  lastUsedAt          DateTime?
+  revokedAt           DateTime?
+  revokeReason        String?
+  rotatedFromSessionId String?
+  rotatedFromSession  RefreshSession? @relation("RefreshSessionRotation", fields: [rotatedFromSessionId], references: [id], onDelete: SetNull)
+  rotatedToSessions   RefreshSession[] @relation("RefreshSessionRotation")
+  createdAt           DateTime        @default(now())
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
+}
+
+// Public moderation/compliance timeline shown on user profiles.
+model PolicyComplianceLog {
+  id                   String                     @id @default(cuid())
+  userId               String
+  user                 User                       @relation("PolicyActionsForUser", fields: [userId], references: [id], onDelete: Cascade)
+  actionType           PolicyComplianceActionType
+  publicReason         String                     @db.Text
+  status               PolicyComplianceStatus     @default(ACTIVE)
+  createdByModeratorId String
+  createdByModerator   User                       @relation("PolicyActionsCreatedBy", fields: [createdByModeratorId], references: [id], onDelete: Cascade)
+  isPublic             Boolean                    @default(true)
+  createdAt            DateTime                   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([isPublic, createdAt])
+  @@index([createdByModeratorId])
+  @@map("policy_compliance_logs")
+}
+
+// Internal moderation/audit stream for admin panel oversight.
+model AdminActivityLog {
+  id          String   @id @default(cuid())
+  actorId     String
+  actor       User     @relation("AdminActivityActor", fields: [actorId], references: [id], onDelete: Cascade)
+  actorRole   Role
+  action      String
+  targetType  String
+  targetId    String?
+  targetLabel String?
+  details     String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([actorRole, createdAt])
+  @@index([targetType, createdAt])
+  @@index([createdAt])
+  @@map("admin_activity_logs")
+}
+
+// Unified reports for articles/comments/users/(future) DMs with transparent
+// reporter-facing status updates and moderator-only internal notes.
+model ContentReport {
+  id              String                  @id @default(cuid())
+  reporterId      String
+  reporter        User                    @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType      ContentReportTargetType
+  targetId        String
+  targetUserId    String?
+  targetUser      User?                   @relation("ReportsAgainstUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  reason          ReportReason
+  description     String?                 @db.Text
+  status          ContentReportStatus     @default(SUBMITTED)
+  reviewerId      String?
+  reviewer        User?                   @relation("ReportsHandledBy", fields: [reviewerId], references: [id], onDelete: SetNull)
+  internalNote    String?                 @db.Text
+  publicUpdate    String?                 @db.Text
+  statusUpdatedAt DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([reporterId, createdAt])
+  @@index([status, createdAt])
+  @@index([targetType, status])
+  @@index([targetType, targetId])
+  @@index([targetUserId])
+  @@index([reason, createdAt])
+  @@map("content_reports")
+}
+
+// Referral relationship for growth program.
+model Referral {
+  id             String         @id @default(cuid())
+  referrerUserId String
+  referrerUser   User           @relation("ReferralsMadeBy", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referredUserId String
+  referredUser   User           @relation("ReferralAttributedTo", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referralCode   String
+  status         ReferralStatus @default(REGISTERED)
+  createdAt      DateTime       @default(now())
+  rewardedAt     DateTime?
+
+  @@unique([referredUserId])
+  @@unique([referrerUserId, referredUserId])
+  @@index([referrerUserId, createdAt])
+  @@index([referralCode])
+  @@index([status, createdAt])
+  @@map("referrals")
+}
+
+// In-app notifications. Currently used for NEW_ARTICLE (a followed creator
+// just published) and NEW_SUBSCRIBER (someone followed me). The `payload`
+// JSON carries the article/user id so the frontend can render & link.
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String // recipient
+  type      NotificationType
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+// Saved articles ("bookmarks"). One row per (user, article); idempotent toggle.
+model Bookmark {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId])
+  @@index([articleId])
+  @@map("bookmarks")
+}
+
+// Lightweight emoji reactions on articles. One reaction per (user, article);
+// the user can change their emoji but cannot add multiple.
+model ArticleReaction {
+  id        String        @id @default(cuid())
+  emoji     ReactionEmoji
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([articleId])
+  @@index([userId])
+  @@map("article_reactions")
+}
+
+// C1: Version snapshots — saved on every manual save (draft/submit).
+// Only the last 5 per article are kept (older ones pruned by the controller).
+model ArticleVersion {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  title     String
+  body      String   @db.Text
+  excerpt   String?
+  version   Int // monotonically increasing per article
+  createdAt DateTime @default(now())
+
+  @@index([articleId, version])
+  @@map("article_versions")
+}
+
+// C3: Ordered sequence of articles that form a multi-part series.
+model ArticleSeries {
+  id          String                @id @default(cuid())
+  title       String
+  slug        String                @unique
+  description String?               @db.Text
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  members     ArticleSeriesMember[]
+
+  @@index([userId])
+  @@map("article_series")
+}
+
+model ArticleSeriesMember {
+  id        String        @id @default(cuid())
+  seriesId  String
+  series    ArticleSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  position  Int
+
+  @@unique([seriesId, articleId])
+  @@index([articleId])
+  @@map("article_series_members")
+}
+
+// User-submitted abuse report against a comment. One report per (comment, user)
+// to prevent spam-reporting; admins review and either dismiss or hide the
+// underlying comment.
+model CommentReport {
+  id         String       @id @default(cuid())
+  reason     ReportReason
+  details    String?      @db.Text
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  reviewedAt DateTime?
+
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  reporterId String
+  reporter   User   @relation("CommentReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  reviewerId String?
+  reviewer   User?   @relation("CommentReportsReviewed", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([commentId, reporterId])
+  @@index([status])
+  @@index([commentId])
+  @@map("comment_reports")
+}
+
+// K7: Emoji reactions on comments. One reaction per (user, comment).
+// Uses the same ReactionEmoji enum as article reactions (extended with HUNDRED + QUESTION).
+model CommentReaction {
+  id        String        @id @default(cuid())
+  emoji     ReactionEmoji
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@index([commentId])
+  @@index([userId])
+  @@map("comment_reactions")
+}
+
+// K9: Per-tag follows. One row per (user, tag); toggling creates/deletes the row.
+model TagFollow {
+  id        String   @id @default(cuid())
+  tagId     String
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, tagId])
+  @@index([tagId])
+  @@index([userId])
+  @@map("tag_follows")
+}
+
+// K4: Reader-submitted article requests / wishlist items.
+model ArticleRequest {
+  id          String               @id @default(cuid())
+  title       String
+  description String?              @db.Text
+  status      ArticleRequestStatus @default(OPEN)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  requesterId String
+  requester   User   @relation("RequestsMade", fields: [requesterId], references: [id], onDelete: Cascade)
+
+  // Creator who claimed this request (optional until claimed).
+  claimedById String?
+  claimedBy   User?   @relation("RequestsClaimed", fields: [claimedById], references: [id], onDelete: SetNull)
+
+  // Article that fulfills this request (set when status = FULFILLED).
+  fulfilledArticleId String?
+  fulfilledArticle   Article? @relation(fields: [fulfilledArticleId], references: [id], onDelete: SetNull)
+
+  votes ArticleRequestVote[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@map("article_requests")
+}
+
+// Upvotes on article requests. One per (user, request); toggleable.
+model ArticleRequestVote {
+  id        String         @id @default(cuid())
+  requestId String
+  request   ArticleRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([userId, requestId])
+  @@index([requestId])
+  @@map("article_request_votes")
+}
+
+// K6: Public reading lists — curated collections of articles.
+model ReadingList {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  description String?
+  isPublic    Boolean  @default(true)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items   ReadingListItem[]
+  follows ReadingListFollow[]
+
+  @@index([userId])
+  @@map("reading_lists")
+}
+
+// Items inside a reading list. position is 0-based.
+model ReadingListItem {
+  id            String      @id @default(cuid())
+  readingListId String
+  readingList   ReadingList @relation(fields: [readingListId], references: [id], onDelete: Cascade)
+  articleId     String
+  article       Article     @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  position      Int
+  addedAt       DateTime    @default(now())
+
+  @@unique([readingListId, articleId])
+  @@index([readingListId])
+  @@map("reading_list_items")
+}
+
+// Follow relation on reading lists.
+model ReadingListFollow {
+  id            String      @id @default(cuid())
+  readingListId String
+  readingList   ReadingList @relation(fields: [readingListId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([userId, readingListId])
+  @@index([readingListId])
+  @@map("reading_list_follows")
+}
+
+// K10: Polls — can be embedded in articles or standalone (articleId = null).
+model Poll {
+  id        String    @id @default(cuid())
+  question  String
+  // null = standalone poll not tied to an article body (discussion post).
+  articleId String?
+  article   Article?  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  endsAt    DateTime? // null = never expires
+  createdAt DateTime  @default(now())
+
+  options PollOption[]
+  votes   PollVote[]
+
+  @@index([articleId])
+  @@map("polls")
+}
+
+model PollOption {
+  id       String     @id @default(cuid())
+  text     String
+  position Int // display order (0-based)
+  pollId   String
+  poll     Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes    PollVote[]
+
+  @@index([pollId])
+  @@map("poll_options")
+}
+
+// R4: Awarded badges. One row per (user, badge). Earned via streak/read-count thresholds.
+model UserBadge {
+  id       String    @id @default(cuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code     BadgeCode
+  earnedAt DateTime  @default(now())
+
+  @@unique([userId, code])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+// R4: Cached reading streak so we don't recompute from ArticleView on every page load.
+// Recomputed lazily inside `recordArticleView` and on GET /me/streak.
+model UserStreakStats {
+  userId        String    @id
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentStreak Int       @default(0)
+  longestStreak Int       @default(0)
+  lastReadDate  DateTime? // last date with at least one read (date-only resolution)
+  totalReads    Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@map("user_streak_stats")
+}
+
+// One vote per (poll, user). Changing vote → delete old + create new.
+model PollVote {
+  id        String     @id @default(cuid())
+  pollId    String
+  poll      Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionId  String
+  option    PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([pollId, userId])
+  @@index([pollId])
+  @@map("poll_votes")
+}

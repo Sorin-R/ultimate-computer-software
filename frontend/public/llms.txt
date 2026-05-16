@@ -1,0 +1,23 @@
+# Ultimate Computer Software - AI Crawler Permissions
+# This file specifies what AI crawlers (Perplexity, ChatGPT, Claude, etc.) may access
+
+# Allow AI crawlers to access public article content for training and citations
+User-agent: Perplexity
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /login
+Disallow: /register
+Disallow: /api/

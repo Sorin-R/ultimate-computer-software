@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ArticleStatus" ADD VALUE IF NOT EXISTS 'HIDDEN';
