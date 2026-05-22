@@ -14,6 +14,11 @@ const categories = [
   { name: "Green Technology", slug: "green-technology", description: "Renewable energy, electric vehicles, battery technology, and climate tech innovations." },
   { name: "Space Technology", slug: "space-technology", description: "Space exploration, satellites, rocket technology, and space communications." },
   { name: "Biotechnology", slug: "biotechnology", description: "Medical technology, gene editing, health AI, lab automation, and bioinformatics." },
+  { name: "Quantum Computing", slug: "quantum-computing", description: "Quantum computing breakthroughs, qubit technology, quantum algorithms, and post-quantum cryptography." },
+  { name: "Semiconductors & Chips", slug: "semiconductors-chips", description: "Chip manufacturing, processor architecture, GPU/TPU news, and semiconductor industry analysis." },
+  { name: "Data Centres & AI Infrastructure", slug: "data-centres-ai-infrastructure", description: "Data centre technology, GPU clusters, AI training infrastructure, and cloud hardware." },
+  { name: "FinTech & Digital Payments", slug: "fintech-digital-payments", description: "Financial technology, digital banking, payment innovation, and decentralised finance." },
+  { name: "HealthTech & Digital Health", slug: "healthtech-digital-health", description: "Digital health, medical AI, wearable health tech, and telemedicine innovation." },
 ];
 
 // Tag → category mapping. Each tag belongs to exactly one of the 10 categories
@@ -80,6 +85,36 @@ const tags: { name: string; slug: string; categorySlug: string }[] = [
   { name: "Health AI", slug: "health-ai", categorySlug: "biotechnology" },
   { name: "Lab Automation", slug: "lab-automation", categorySlug: "biotechnology" },
   { name: "Bioinformatics", slug: "bioinformatics", categorySlug: "biotechnology" },
+  // Quantum Computing
+  { name: "Quantum Supremacy", slug: "quantum-supremacy", categorySlug: "quantum-computing" },
+  { name: "Qubit Technology", slug: "qubit-technology", categorySlug: "quantum-computing" },
+  { name: "Post-Quantum Cryptography", slug: "post-quantum-cryptography", categorySlug: "quantum-computing" },
+  { name: "Quantum Algorithms", slug: "quantum-algorithms", categorySlug: "quantum-computing" },
+  { name: "Quantum Hardware", slug: "quantum-hardware", categorySlug: "quantum-computing" },
+  // Semiconductors & Chips
+  { name: "Chip Manufacturing", slug: "chip-manufacturing", categorySlug: "semiconductors-chips" },
+  { name: "Mobile Processors", slug: "mobile-processors", categorySlug: "semiconductors-chips" },
+  { name: "GPU & AI Chips", slug: "gpu-ai-chips", categorySlug: "semiconductors-chips" },
+  { name: "RISC-V", slug: "risc-v", categorySlug: "semiconductors-chips" },
+  { name: "Memory & Storage Chips", slug: "memory-storage-chips", categorySlug: "semiconductors-chips" },
+  // Data Centres & AI Infrastructure
+  { name: "GPU Clusters", slug: "gpu-clusters", categorySlug: "data-centres-ai-infrastructure" },
+  { name: "Liquid Cooling", slug: "liquid-cooling", categorySlug: "data-centres-ai-infrastructure" },
+  { name: "AI Supercomputers", slug: "ai-supercomputers", categorySlug: "data-centres-ai-infrastructure" },
+  { name: "Edge Data Centres", slug: "edge-data-centres", categorySlug: "data-centres-ai-infrastructure" },
+  { name: "Data Centre Power", slug: "data-centre-power", categorySlug: "data-centres-ai-infrastructure" },
+  // FinTech & Digital Payments
+  { name: "Digital Banking", slug: "digital-banking", categorySlug: "fintech-digital-payments" },
+  { name: "Crypto & DeFi", slug: "crypto-defi", categorySlug: "fintech-digital-payments" },
+  { name: "Payment Innovation", slug: "payment-innovation", categorySlug: "fintech-digital-payments" },
+  { name: "RegTech", slug: "regtech", categorySlug: "fintech-digital-payments" },
+  { name: "Embedded Finance", slug: "embedded-finance", categorySlug: "fintech-digital-payments" },
+  // HealthTech & Digital Health
+  { name: "Medical AI", slug: "medical-ai", categorySlug: "healthtech-digital-health" },
+  { name: "Wearable Health Tech", slug: "wearable-health-tech", categorySlug: "healthtech-digital-health" },
+  { name: "Telemedicine", slug: "telemedicine", categorySlug: "healthtech-digital-health" },
+  { name: "Health Data & Interoperability", slug: "health-data-interoperability", categorySlug: "healthtech-digital-health" },
+  { name: "Digital Therapeutics", slug: "digital-therapeutics", categorySlug: "healthtech-digital-health" },
 ];
 
 async function main() {
