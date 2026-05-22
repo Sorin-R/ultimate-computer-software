@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: ucs-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ultimate_computer_software
+      POSTGRES_USER: ucs_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ucs_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ucs_user -d ultimate_computer_software"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ucs-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ucs_user:${POSTGRES_PASSWORD}@db:5432/ultimate_computer_software?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 4000
+      NODE_ENV: production
+      FRONTEND_URL: https://www.ultimatecomputersoftware.com
+      SITE_URL: https://www.ultimatecomputersoftware.com
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
+      TWO_FACTOR_ISSUER: Ultimate Computer Software
+      TRUST_PROXY: "1"
+      COOKIE_SAME_SITE: none
+      COOKIE_SECURE: "true"
+      CAPTCHA_REQUIRED: "false"
+      CAPTCHA_VERIFY_URL: https://challenges.cloudflare.com/turnstile/v0/siteverify
+      CAPTCHA_SECRET: ${CAPTCHA_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      SMTP_FROM_PRIVACY: ${SMTP_FROM_PRIVACY}
+      SMTP_FROM_COPYRIGHT: ${SMTP_FROM_COPYRIGHT}
+      SMTP_FROM_SUPPORT: ${SMTP_FROM_SUPPORT}
+      SMTP_FROM_NOREPLY: ${SMTP_FROM_NOREPLY}
+    ports:
+      - "4000:4000"
+    command: sh -c "npm ci && npx prisma generate && npm run build && npm run start"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ucs-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_SITE_URL: https://www.ultimatecomputersoftware.com
+      VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  ucs_db_data:
