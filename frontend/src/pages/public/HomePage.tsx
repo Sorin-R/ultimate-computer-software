@@ -649,7 +649,7 @@ export default function HomePage() {
             ) : (
               <div>
                 <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight [font-family:Georgia,'Times_New_Roman',serif] whitespace-nowrap">
-                  Tech Journal
+                  Technology Journal
                 </h1>
                 <p className="mt-3 text-sm text-neutral-600 max-w-2xl">
                   {search

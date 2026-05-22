@@ -1,5 +1,6 @@
 
 Start postgre: brew services start postgresql@16
+Stop postgre: brew services stop postgresql@16
 
 # Ultimate Computer Software — Technology News Platform
 

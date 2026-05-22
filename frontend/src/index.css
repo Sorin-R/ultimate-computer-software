@@ -703,8 +703,8 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
 
 .article-body a {
   @apply text-[#b5121b] font-medium hover:text-[#8f0f16] underline;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .article-body blockquote {
@@ -861,6 +861,22 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
   overflow-wrap: normal;
   word-break: normal;
   hyphens: none;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.article-body p,
+.article-body article,
+.article-body section,
+.article-body ul,
+.article-body ol,
+.article-body li,
+.article-body dd,
+.article-body td {
+  overflow-wrap: anywhere;
+  word-break: normal;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .article-body strong {

@@ -5,6 +5,7 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import cron from "node-cron";
 import path from "path";
+import fs from "fs";
 import { env } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import { attachCsrfCookie, requireCsrfProtection } from "./middleware/csrf";
@@ -165,9 +166,16 @@ app.get("/api/health", (_req, res) => {
 // tags + JSON-LD injected into <head>. Real users pass through untouched so
 // the SPA still loads normally. Must come AFTER all API/SEO routes so those
 // take precedence, and BEFORE errorHandler so the catch-all can still respond.
+const frontendDist = path.join(process.cwd(), "..", "frontend", "dist");
+app.use(express.static(frontendDist));
+
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
-  return ogBotMiddleware(req, res, next);
+  ogBotMiddleware(req, res, (err?: any) => {
+    if (err) return next(err);
+    const indexHtml = path.join(frontendDist, "index.html");
+    res.status(200).type("html").send(fs.readFileSync(indexHtml, "utf8"));
+  });
 });
 
 app.use(errorHandler);

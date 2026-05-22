@@ -215,6 +215,11 @@ async function parsePackage(packageDir: string): Promise<ParsedPackage> {
 function markdownChunkToHtml(chunk: string): string {
   const trimmed = chunk.trim();
 
+  // Pass HTML tables through unescaped so they render as real tables.
+  if (/^<table\b[\s\S]*?<\/table>\s*$/i.test(trimmed)) {
+    return trimmed;
+  }
+
   if (/^###\s+/m.test(trimmed)) {
     return `<h3>${escapeHtml(trimmed.replace(/^###\s+/, ""))}</h3>`;
   }
