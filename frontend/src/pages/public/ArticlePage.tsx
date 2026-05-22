@@ -480,7 +480,7 @@ const ArticleBody = memo(function ArticleBody({ body, fallbackAlt }: { body: str
 });
 
 export default function ArticlePage() {
-  const MIN_SIDEBAR_ARTICLES = 8;
+  const MIN_SIDEBAR_ARTICLES = 8; void MIN_SIDEBAR_ARTICLES;
   const ARTICLES_PER_PAGE = 2;
   const { user } = useAuth();
   const { slug } = useParams<{ slug: string }>();

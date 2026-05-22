@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ucs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ultimate_computer_software
+      POSTGRES_USER: ucs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ucs_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ucs -d ultimate_computer_software"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ucs-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://ucs:${POSTGRES_PASSWORD}@postgres:5432/ultimate_computer_software?schema=public
+      PORT: 4000
+      NODE_ENV: production
+    volumes:
+      - ucs_uploads:/app/backend/uploads
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.ucs.rule: "Host(`ultimatecomputersoftware.com`) || Host(`www.ultimatecomputersoftware.com`)"
+      traefik.http.routers.ucs.entrypoints: websecure
+      traefik.http.routers.ucs.tls.certresolver: letsencrypt
+      traefik.http.services.ucs.loadbalancer.server.port: "4000"
+
+volumes:
+  ucs_postgres_data:
+  ucs_uploads:

@@ -1,23 +1,98 @@
-name: Deploy to Hostinger VPS
+name: Deploy Ultimate Computer Software
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to Hostinger
-        uses: hostinger/deploy-action@v1
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          api-key: ${{ secrets.HOSTINGER_API_KEY }}
-          virtual-machine: ${{ vars.HOSTINGER_VM_ID }}
-          project-name: ultimate-computer-software
-          # docker-compose-path: docker-compose.yml
-          # environment-variables: |
-          #   NODE_ENV=production
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          REPO_URL: https://github.com/Sorin-R/ultimate-computer-software.git
+          APP_DIR: /opt/ultimate-computer-software
+        run: |
+          ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" \
+            "REPO_URL='$REPO_URL' APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          if [ ! -d "$APP_DIR/.git" ]; then
+            tmp_dir="${APP_DIR}.github-deploy-tmp"
+            rm -rf "$tmp_dir"
+            git clone "$REPO_URL" "$tmp_dir"
+            if [ -f "$APP_DIR/.env.production" ]; then
+              cp "$APP_DIR/.env.production" "$tmp_dir/.env.production"
+            fi
+            rm -rf "${APP_DIR}.previous"
+            if [ -d "$APP_DIR" ]; then
+              mv "$APP_DIR" "${APP_DIR}.previous"
+            fi
+            mv "$tmp_dir" "$APP_DIR"
+          fi
+
+          cd "$APP_DIR"
+          git fetch origin main
+          git reset --hard origin/main
+
+          if [ ! -f .env.production ]; then
+            echo "Missing $APP_DIR/.env.production" >&2
+            exit 1
+          fi
+
+          docker compose -f docker-compose.production.yml --env-file .env.production build web
+          docker compose -f docker-compose.production.yml --env-file .env.production up -d postgres
+          docker compose -f docker-compose.production.yml --env-file .env.production run --rm --no-deps web npx prisma migrate deploy
+          docker compose -f docker-compose.production.yml --env-file .env.production up -d web
+          docker image prune -f
+          web_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ucs-web)
+          curl -fsS "http://${web_ip}:4000/api/health" >/dev/null || docker logs --tail=120 ucs-web
+          REMOTE
+
