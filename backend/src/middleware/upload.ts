@@ -1,48 +1,39 @@
+// Upload middleware — memory storage (files go to R2, not disk)
 import multer from "multer";
-import path from "path";
-import fs from "fs";
-
-const uploadsDir = path.join(process.cwd(), "uploads");
-
-// Ensure uploads directory exists
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    // Create unique filename: timestamp-uuid.ext
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `article-${uniqueSuffix}${ext}`);
-  },
-});
 
 const fileFilter = (
   req: Express.Request,
   file: Express.Multer.File,
-  cb: multer.FileFilterCallback
+  cb: multer.FileFilterCallback,
 ) => {
-  const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  const allowedMimes = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/svg+xml",
+  ];
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed."));
+    cb(
+      new Error(
+        "Invalid file type. Only JPEG, PNG, WebP, GIF, and SVG are allowed.",
+      ),
+    );
   }
 };
 
+// Standard upload — 3 MB, memory storage
 export const uploadMiddleware = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB max
+  limits: { fileSize: 3 * 1024 * 1024 },
 });
 
-// Upload middleware for admins - no file size limit
+// Admin upload — 10 MB, memory storage
 export const uploadMiddlewareAdmin = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max for admins
+  limits: { fileSize: 10 * 1024 * 1024 },
 });

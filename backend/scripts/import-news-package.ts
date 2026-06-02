@@ -3,7 +3,8 @@ import { ArticleStatus, PrismaClient } from "@prisma/client";
 import { promises as fs } from "fs";
 import path from "path";
 import sharp from "sharp";
-import { generateExcerpt, sanitizeHtml } from "../src/utils/sanitize";
+import { generateExcerpt, sanitizeHtml } from "../dist/utils/sanitize";
+import { uploadToR2, PUBLIC_URL } from "../dist/services/r2Service";
 
 const prisma = new PrismaClient();
 
@@ -215,7 +216,7 @@ async function parsePackage(packageDir: string): Promise<ParsedPackage> {
 function markdownChunkToHtml(chunk: string): string {
   const trimmed = chunk.trim();
 
-  // Pass HTML tables through unescaped so they render as real tables.
+  // Pass HTML tables through unescaped so they render as real tables
   if (/^<table\b[\s\S]*?<\/table>\s*$/i.test(trimmed)) {
     return trimmed;
   }
@@ -330,31 +331,32 @@ function composeArticleHtml(parsed: ParsedPackage, imageUrls: string[]): string 
 
 async function prepareImages(
   parsed: ParsedPackage,
-  backendRoot: string,
+  _backendRoot: string,
   dryRun: boolean
 ): Promise<string[]> {
-  const uploadSubdir = path.posix.join("news-import", parsed.packageSlug);
-  const uploadDir = path.join(backendRoot, "uploads", "news-import", parsed.packageSlug);
-
-  if (!dryRun) {
-    await fs.mkdir(uploadDir, { recursive: true });
-  }
-
   const imageUrls: string[] = [];
+  const r2Prefix = `articles/${parsed.packageSlug}`;
+
   for (let index = 0; index < parsed.imagePaths.length; index++) {
     const sourcePath = parsed.imagePaths[index];
     const baseName = createSlug(path.basename(sourcePath, path.extname(sourcePath))) || `image-${index + 1}`;
     const targetName = `${String(index + 1).padStart(2, "0")}-${baseName}.webp`;
-    const targetPath = path.join(uploadDir, targetName);
+    const r2Key = `${r2Prefix}/${targetName}`;
 
     if (!dryRun) {
-      await sharp(sourcePath)
+      const webpBuffer = await sharp(sourcePath)
         .resize(896, 504, { fit: "cover", position: "center" })
         .webp({ quality: 82 })
-        .toFile(targetPath);
-    }
+        .toBuffer();
 
-    imageUrls.push(`/uploads/${uploadSubdir}/${targetName}`);
+      const { url } = await uploadToR2(r2Key, webpBuffer, "image/webp");
+      imageUrls.push(url);
+    } else {
+      const url = PUBLIC_URL
+        ? `${PUBLIC_URL}/${r2Key}`
+        : `/api/media/${r2Key}`;
+      imageUrls.push(url);
+    }
   }
 
   return imageUrls;

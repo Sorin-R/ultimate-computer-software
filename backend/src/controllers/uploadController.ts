@@ -1,51 +1,52 @@
+// Upload controller — processes images in memory → R2
 import { Request, Response } from "express";
 import sharp from "sharp";
-import path from "path";
-import fs from "fs";
+import { randomUUID } from "crypto";
+import { uploadToR2 } from "../services/r2Service";
 
+type UploadedFile = Express.Multer.File;
+
+const ARTICLE_IMAGE_WIDTH = 896;
+const ARTICLE_IMAGE_HEIGHT = 504;
+const WEBP_QUALITY = 80;
+
+/**
+ * POST /api/upload/article-image
+ * Accepts an image (JPEG/PNG/WebP/GIF), resizes to 896×504 WebP, uploads to R2.
+ */
 export const uploadArticleImage = async (
-  req: Request & { file?: Express.Multer.File },
-  res: Response
+  req: Request & { file?: UploadedFile },
+  res: Response,
 ) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
   try {
-    // Get the uploaded file path
-    const uploadedFilePath = req.file.path;
-    const filename = req.file.filename;
-    const outputPath = path.join(
-      path.dirname(uploadedFilePath),
-      `${path.basename(filename, path.extname(filename))}-optimized.webp`
-    );
+    const buffer = req.file.buffer;
+    const originalName = req.file.originalname.replace(/\.[^.]+$/, "");
+    const uuid = randomUUID().slice(0, 8);
+    const key = `articles/${Date.now()}-${uuid}.webp`;
 
-    // Resize and convert to WebP for optimization (16:9 landscape aspect ratio)
-    await sharp(uploadedFilePath)
-      .resize(896, 504, {
-        fit: "cover", // Crop to fill the rectangle
+    // Resize & convert to WebP in memory
+    const optimized = await sharp(buffer)
+      .resize(ARTICLE_IMAGE_WIDTH, ARTICLE_IMAGE_HEIGHT, {
+        fit: "cover",
         position: "center",
       })
-      .webp({ quality: 80 })
-      .toFile(outputPath);
+      .webp({ quality: WEBP_QUALITY })
+      .toBuffer();
 
-    // Delete original file
-    fs.unlinkSync(uploadedFilePath);
-
-    // Return the relative path to the optimized image
-    const relativePath = `/uploads/${path.basename(outputPath)}`;
+    // Upload to R2
+    const { url } = await uploadToR2(key, optimized, "image/webp");
 
     return res.status(200).json({
       success: true,
-      imageUrl: relativePath,
+      imageUrl: url,
+      key,
       message: "Image uploaded and optimized successfully",
     });
   } catch (error) {
-    // Clean up uploaded file if optimization fails
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
     console.error("Image upload error:", error);
     return res.status(500).json({
       error: "Failed to process image. Please ensure it is a valid image file.",

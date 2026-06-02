@@ -30,6 +30,7 @@ import pollRoutes from "./routes/polls";
 import meRoutes from "./routes/me";
 import reportRoutes from "./routes/reports";
 import statsRoutes from "./routes/stats";
+import { mediaHandler } from "./routes/media";
 import {
   getAuthorRss,
   getCategoryRss,
@@ -142,6 +143,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/media", mediaHandler);
 app.use("/api/config", configRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/comments", commentRoutes);
@@ -166,13 +168,16 @@ app.get("/api/health", (_req, res) => {
 // tags + JSON-LD injected into <head>. Real users pass through untouched so
 // the SPA still loads normally. Must come AFTER all API/SEO routes so those
 // take precedence, and BEFORE errorHandler so the catch-all can still respond.
+// Serve built frontend dist for production
 const frontendDist = path.join(process.cwd(), "..", "frontend", "dist");
 app.use(express.static(frontendDist));
 
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
+  // OG bot middleware for crawlers, then SPA fallback
   ogBotMiddleware(req, res, (err?: any) => {
     if (err) return next(err);
+    // SPA fallback: serve index.html for frontend routes
     const indexHtml = path.join(frontendDist, "index.html");
     res.status(200).type("html").send(fs.readFileSync(indexHtml, "utf8"));
   });
