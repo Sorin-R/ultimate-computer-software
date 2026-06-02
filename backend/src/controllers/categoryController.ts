@@ -54,11 +54,12 @@ export async function getCategories(_req: Request, res: Response): Promise<void>
       };
     })
     .sort((a, b) => {
+      // Primary sort: most total views first
+      if (b.totalViews !== a.totalViews) return b.totalViews - a.totalViews;
+      // Tie-breaker: higher avg read time, then alphabetical
       if (b.avgReadTimeSeconds !== a.avgReadTimeSeconds) {
         return b.avgReadTimeSeconds - a.avgReadTimeSeconds;
       }
-      // Tie-breaker: more views, then alphabetical.
-      if (b.totalViews !== a.totalViews) return b.totalViews - a.totalViews;
       return a.name.localeCompare(b.name);
     });
 
