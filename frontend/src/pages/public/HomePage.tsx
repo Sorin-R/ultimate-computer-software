@@ -674,7 +674,7 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="mt-6 hidden lg:flex flex-wrap justify-between gap-y-2">
+            <div className="mt-6 hidden lg:grid grid-cols-7 gap-y-2 gap-x-1">
               {categories.slice(0, 14).map((cat) => (
                 <Link
                   key={cat.id}
