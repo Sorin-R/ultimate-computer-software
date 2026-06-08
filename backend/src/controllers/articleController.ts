@@ -538,6 +538,13 @@ export async function updateArticle(req: Request, res: Response): Promise<void> 
     data.status = status;
     if (status === "SUBMITTED") {
       data.publishedAt = null;
+    } else if (status === "PUBLISHED" && !existing.publishedAt) {
+      // Stamp the publish date the first time an article becomes PUBLISHED via
+      // the edit endpoint. Without this, publishing through update leaves
+      // publishedAt = null, and null dates sort as "newest" everywhere in
+      // Postgres (this is how SpiderCam pinned itself to the homepage hero).
+      // Re-publishing keeps the original date.
+      data.publishedAt = new Date();
     }
   }
 
