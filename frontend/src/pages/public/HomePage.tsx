@@ -618,7 +618,8 @@ export default function HomePage() {
               Worldwide Tech Journal Desk
             </p>
             <div className="flex items-center gap-2">
-              <div className="flex flex-col">
+              {/* Mobile: date above time */}
+              <div className="flex flex-col lg:hidden">
                 <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
                   {clockDate}
                 </span>
@@ -626,6 +627,10 @@ export default function HomePage() {
                   {clockTime}
                 </span>
               </div>
+              {/* Desktop: single line */}
+              <span className="hidden lg:inline text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
+                {clockDate} &nbsp;{clockTime}
+              </span>
               <select
                 value={timeZone}
                 onChange={(e) => setTimeZone(e.target.value)}
