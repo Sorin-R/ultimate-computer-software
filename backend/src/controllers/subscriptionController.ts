@@ -175,7 +175,7 @@ export async function listMySubscriptions(req: Request, res: Response): Promise<
           _count: { select: { subscriptionsReceived: true } },
           articles: {
             where: { status: "PUBLISHED" },
-            orderBy: { publishedAt: "desc" },
+            orderBy: { publishedAt: { sort: "desc", nulls: "last" } },
             take: 1,
             select: {
               id: true,

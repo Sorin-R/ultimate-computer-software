@@ -243,7 +243,7 @@ export async function getAuthorRss(req: Request, res: Response): Promise<void> {
 
   const articles = await prisma.article.findMany({
     where: { userId: author.id, status: "PUBLISHED" },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: 30,
     include: {
       category: { select: { name: true } },
@@ -292,7 +292,7 @@ export async function getCategoryRss(req: Request, res: Response): Promise<void>
 
   const articles = await prisma.article.findMany({
     where: { categoryId: category.id, status: "PUBLISHED" },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: 30,
     include: {
       tags: { select: { tag: { select: { name: true } } } },
@@ -335,7 +335,7 @@ export async function getTagRss(req: Request, res: Response): Promise<void> {
       status: "PUBLISHED",
       tags: { some: { tagId: tag.id } },
     },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: 30,
     include: {
       category: { select: { name: true } },

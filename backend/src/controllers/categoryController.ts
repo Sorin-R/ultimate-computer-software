@@ -102,7 +102,7 @@ export async function getCategoryBySlug(req: Request, res: Response): Promise<vo
   const [articlesBase, total] = await Promise.all([
     prisma.article.findMany({
       where: { categoryId: category.id, status: "PUBLISHED" },
-      orderBy: { publishedAt: "desc" },
+      orderBy: { publishedAt: { sort: "desc", nulls: "last" } },
       skip: (page - 1) * limit,
       take: limit,
       select: {

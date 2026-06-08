@@ -44,7 +44,7 @@ export async function getTag(req: Request, res: Response): Promise<void> {
   const [articles, total] = await Promise.all([
     prisma.article.findMany({
       where,
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
       select: {
@@ -213,7 +213,7 @@ export async function getTagFeed(req: Request, res: Response): Promise<void> {
   const [articlesBase, total] = await Promise.all([
     prisma.article.findMany({
       where,
-      orderBy: { publishedAt: "desc" },
+      orderBy: { publishedAt: { sort: "desc", nulls: "last" } },
       skip: (page - 1) * limit,
       take: limit,
       select: {

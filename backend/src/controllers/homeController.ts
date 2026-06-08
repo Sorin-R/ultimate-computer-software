@@ -244,7 +244,7 @@ export async function getMainArticle(req: Request, res: Response): Promise<void>
         categoryId: favouriteCategoryId,
         id: { notIn: Array.from(readArticleIds) },
       },
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       select: ARTICLE_SELECT,
     });
     if (chosen) source = "personalised_unread";
@@ -254,7 +254,7 @@ export async function getMainArticle(req: Request, res: Response): Promise<void>
     if (!chosen) {
       chosen = await prisma.article.findFirst({
         where: { status: "PUBLISHED", categoryId: favouriteCategoryId },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+        orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         select: ARTICLE_SELECT,
       });
       if (chosen) source = "personalised_repeat";
@@ -265,7 +265,7 @@ export async function getMainArticle(req: Request, res: Response): Promise<void>
   if (!chosen) {
     chosen = await prisma.article.findFirst({
       where: { status: "PUBLISHED" },
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       select: ARTICLE_SELECT,
     });
     if (chosen) source = "global_latest";
@@ -390,7 +390,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
   if (sort === "latest") {
     const latestArticles = await prisma.article.findMany({
       where,
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       skip: start,
       take: limit,
       select: ARTICLE_SELECT,
@@ -511,7 +511,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
 
   const candidates = await prisma.article.findMany({
     where,
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: candidateTake,
     select: ARTICLE_SELECT,
   });
@@ -654,7 +654,7 @@ export async function getFromYourFollows(req: Request, res: Response): Promise<v
 
   const articles = await prisma.article.findMany({
     where: { status: "PUBLISHED", userId: { in: creatorIds } },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: 12,
     select: {
       id: true,

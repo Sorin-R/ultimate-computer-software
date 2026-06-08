@@ -78,7 +78,7 @@ export async function getAuthorProfile(req: Request, res: Response): Promise<voi
       : Promise.resolve(null),
     prisma.article.findMany({
       where: { userId: authorId, status: "PUBLISHED" },
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ publishedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
       select: ARTICLE_LIST_SELECT,

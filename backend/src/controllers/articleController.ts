@@ -213,7 +213,7 @@ export async function getPublishedArticles(req: Request, res: Response): Promise
   const [articlesBase, total] = await Promise.all([
     prisma.article.findMany({
       where,
-      orderBy: { publishedAt: "desc" },
+      orderBy: { publishedAt: { sort: "desc", nulls: "last" } },
       skip: (page - 1) * limit,
       take: limit,
       select: {
@@ -286,7 +286,7 @@ export async function getArticleBySlug(req: Request, res: Response): Promise<voi
       status: "PUBLISHED",
       id: { not: article.id },
     },
-    orderBy: { publishedAt: "desc" },
+    orderBy: { publishedAt: { sort: "desc", nulls: "last" } },
     take: 4,
     select: {
       id: true,
@@ -1163,7 +1163,7 @@ export async function getActiveAmas(req: Request, res: Response): Promise<void> 
       status: "PUBLISHED",
       OR: [{ amaExpiresAt: null }, { amaExpiresAt: { gte: now } }],
     },
-    orderBy: [{ isPinnedToHome: "desc" }, { publishedAt: "desc" }],
+    orderBy: [{ isPinnedToHome: "desc" }, { publishedAt: { sort: "desc", nulls: "last" } }],
     take: 10,
     select: {
       id: true,
