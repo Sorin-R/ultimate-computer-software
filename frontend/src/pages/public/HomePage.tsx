@@ -692,17 +692,33 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="mt-6 hidden lg:flex overflow-x-scroll gap-2 pb-2 flex-nowrap scroll-smooth" style={{ scrollbarWidth: 'thin', WebkitOverflowScrolling: 'touch', msOverflowStyle: 'none' }}>
-              {categories.map((cat) => (
-                <Link
-                  key={cat.id}
-                  to={`/category/${cat.slug}`}
-                  className="px-2 py-1 border border-black/20 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#262626] hover:bg-black hover:text-white whitespace-nowrap shrink-0 transition-colors"
-                >
-                  {cat.name}
-                </Link>
-              ))}
+            {/* Categories auto-scroll ticker */}
+            <style>{`
+              @keyframes categories-scroll {
+                0% { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+              .categories-ticker {
+                animation: categories-scroll 60s linear infinite;
+              }
+              .categories-ticker:hover {
+                animation-play-state: paused;
+              }
+            `}</style>
+            <div className="mt-6 hidden lg:block overflow-hidden border-t border-black/10">
+              <div className="categories-ticker flex items-center gap-2 py-2 whitespace-nowrap">
+                {[...categories, ...categories].map((cat, i) => (
+                  <Link
+                    key={`${cat.id}-${i}`}
+                    to={`/category/${cat.slug}`}
+                    className="px-2 py-1 border border-black/20 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#262626] hover:bg-black hover:text-white whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    {cat.name}
+                  </Link>
+                ))}
+              </div>
             </div>
+
           </div>
         </section>
 
