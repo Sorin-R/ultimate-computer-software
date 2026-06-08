@@ -141,7 +141,7 @@ function getAllTimeZones(): string[] {
   return zones;
 }
 
-function formatClock(date: Date, timeZone: string): string {
+function formatClock(date: Date, timeZone: string): { date: string; time: string } {
   let parts: Intl.DateTimeFormatPart[];
   try {
     parts = new Intl.DateTimeFormat("en-US", {
@@ -170,7 +170,10 @@ function formatClock(date: Date, timeZone: string): string {
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? "";
 
-  return `${value("month")} ${value("day")}, ${value("year")} ${value("hour")}:${value("minute")}:${value("second")} ${value("dayPeriod")}`;
+  return {
+    date: `${value("month")} ${value("day")}, ${value("year")}`,
+    time: `${value("hour")}:${value("minute")}:${value("second")} ${value("dayPeriod")}`,
+  };
 }
 
 function formatTimeZoneShortLabel(zone: string): string {
@@ -282,7 +285,8 @@ export default function HomePage() {
     const saved = localStorage.getItem("preferredTimeZone");
     return saved || getBrowserTimeZone();
   });
-  const [clockText, setClockText] = useState(() => formatClock(new Date(), timeZone));
+  const [clockDate, setClockDate] = useState(() => formatClock(new Date(), timeZone).date);
+  const [clockTime, setClockTime] = useState(() => formatClock(new Date(), timeZone).time);
 
   useEffect(() => {
     if (!timeZones.includes(timeZone)) {
@@ -292,9 +296,13 @@ export default function HomePage() {
   }, [timeZone, timeZones]);
 
   useEffect(() => {
-    setClockText(formatClock(new Date(), timeZone));
+    const clock = formatClock(new Date(), timeZone);
+    setClockDate(clock.date);
+    setClockTime(clock.time);
     const timer = setInterval(() => {
-      setClockText(formatClock(new Date(), timeZone));
+      const updated = formatClock(new Date(), timeZone);
+      setClockDate(updated.date);
+      setClockTime(updated.time);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -610,9 +618,14 @@ export default function HomePage() {
               Worldwide Tech Journal Desk
             </p>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
-                {clockText}
-              </span>
+              <div className="flex flex-col">
+                <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
+                  {clockDate}
+                </span>
+                <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap tabular-nums">
+                  {clockTime}
+                </span>
+              </div>
               <select
                 value={timeZone}
                 onChange={(e) => setTimeZone(e.target.value)}
@@ -649,7 +662,7 @@ export default function HomePage() {
             ) : (
               <div>
                 <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight [font-family:Georgia,'Times_New_Roman',serif] whitespace-nowrap">
-                  Technology Journal
+                  Tech Journal
                 </h1>
                 <p className="mt-3 text-sm text-neutral-600 max-w-2xl">
                   {search
@@ -674,7 +687,7 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="mt-6 hidden lg:grid grid-cols-7 gap-y-2 gap-x-1">
+            <div className="mt-6 hidden lg:flex flex-wrap justify-between gap-y-2">
               {categories.slice(0, 14).map((cat) => (
                 <Link
                   key={cat.id}
