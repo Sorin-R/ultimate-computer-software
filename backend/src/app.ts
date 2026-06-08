@@ -51,7 +51,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:", "http://localhost:4000", "http://localhost:5173"],
+        imgSrc: ["'self'", "data:", "blob:", "http://localhost:4000", "http://localhost:5173", "https://cdn.ultimatecomputersoftware.com"],
         scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         connectSrc: ["'self'", env.FRONTEND_URL, "https://challenges.cloudflare.com"],
