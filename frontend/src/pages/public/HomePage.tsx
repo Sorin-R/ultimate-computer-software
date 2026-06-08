@@ -830,7 +830,7 @@ export default function HomePage() {
                             {article.imageUrl && (
                               <Link
                                 to={`/${article.slug}`}
-                                className="relative shrink-0 block w-28 sm:w-40 aspect-video overflow-hidden rounded"
+                                className="relative shrink-0 self-start block w-28 sm:w-40 aspect-video overflow-hidden rounded"
                               >
                                 {hasReadyAudio(article) && <ArticleListenBadge size="sm" />}
                                 <img
