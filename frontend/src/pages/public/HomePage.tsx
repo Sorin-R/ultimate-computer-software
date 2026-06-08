@@ -1005,7 +1005,7 @@ export default function HomePage() {
                             {a.imageUrl && (
                               <Link
                                 to={`/${a.slug}`}
-                                className="relative shrink-0 w-28 aspect-video overflow-hidden rounded"
+                                className="relative shrink-0 self-start w-28 aspect-video overflow-hidden rounded"
                               >
                                 {hasReadyAudio(a) && <ArticleListenBadge size="sm" />}
                                 <img
@@ -1043,7 +1043,7 @@ export default function HomePage() {
                             {a.imageUrl && (
                               <Link
                                 to={`/${a.slug}`}
-                                className="relative shrink-0 w-28 aspect-video overflow-hidden rounded"
+                                className="relative shrink-0 self-start w-28 aspect-video overflow-hidden rounded"
                               >
                                 {hasReadyAudio(a) && <ArticleListenBadge size="sm" />}
                                 <img
@@ -1076,7 +1076,7 @@ export default function HomePage() {
                             {a.imageUrl && (
                               <Link
                                 to={`/${a.slug}`}
-                                className="relative shrink-0 w-28 aspect-video overflow-hidden rounded"
+                                className="relative shrink-0 self-start w-28 aspect-video overflow-hidden rounded"
                               >
                                 {hasReadyAudio(a) && <ArticleListenBadge size="sm" />}
                                 <img
@@ -1114,7 +1114,7 @@ export default function HomePage() {
                             {a.imageUrl && (
                               <Link
                                 to={`/${a.slug}`}
-                                className="relative shrink-0 w-28 aspect-video overflow-hidden rounded"
+                                className="relative shrink-0 self-start w-28 aspect-video overflow-hidden rounded"
                               >
                                 {hasReadyAudio(a) && <ArticleListenBadge size="sm" />}
                                 <img
