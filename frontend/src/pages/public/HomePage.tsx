@@ -692,8 +692,8 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="mt-6 hidden lg:flex flex-wrap justify-between gap-y-2">
-              {categories.slice(0, 14).map((cat) => (
+            <div className="mt-6 hidden lg:flex overflow-x-auto gap-2 pb-1 flex-nowrap">
+              {categories.map((cat) => (
                 <Link
                   key={cat.id}
                   to={`/category/${cat.slug}`}
