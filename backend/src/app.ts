@@ -51,7 +51,11 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:", "http://localhost:4000", "http://localhost:5173", "https://cdn.ultimatecomputersoftware.com"],
+        // Article bodies embed images from many external hosts (Unsplash,
+        // Pexels, Wikimedia, NASA, Flickr, news sites, etc.), so allow any
+        // HTTPS image source. http: URLs are auto-upgraded by
+        // upgrade-insecure-requests below, so we don't need to list it.
+        imgSrc: ["'self'", "data:", "blob:", "https:", "https://cdn.ultimatecomputersoftware.com"],
         scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
