@@ -666,10 +666,10 @@ export default function HomePage() {
               </div>
             ) : (
               <div>
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight [font-family:Georgia,'Times_New_Roman',serif] whitespace-nowrap">
+                <h1 className="text-xl sm:text-2xl md:text-4xl lg:text-6xl font-bold tracking-tight [font-family:Georgia,'Times_New_Roman',serif] whitespace-nowrap">
                   The Technology Journal
                 </h1>
-                <p className="mt-3 text-sm text-neutral-600 max-w-2xl">
+                <p className="mt-3 text-xs sm:text-sm text-neutral-600 max-w-2xl">
                   {search
                     ? `Search results for "${search}"`
                     : "Global reporting on software, AI, enterprise systems, and digital innovation."}
