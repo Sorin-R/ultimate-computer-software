@@ -692,7 +692,7 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="mt-6 hidden lg:flex overflow-x-auto gap-2 pb-1 flex-nowrap">
+            <div className="mt-6 hidden lg:flex overflow-x-auto gap-2 pb-1 flex-nowrap scroll-smooth scrollbar-thin" style={{ scrollbarWidth: 'thin', WebkitOverflowScrolling: 'touch' }}>
               {categories.map((cat) => (
                 <Link
                   key={cat.id}
