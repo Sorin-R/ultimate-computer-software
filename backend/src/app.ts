@@ -32,8 +32,11 @@ import reportRoutes from "./routes/reports";
 import statsRoutes from "./routes/stats";
 import { mediaHandler } from "./routes/media";
 import {
+  getArticlesSitemap,
   getAuthorRss,
   getCategoryRss,
+  getNewsSitemap,
+  getPagesSitemap,
   getRobotsTxt,
   getSitemapXml,
   getTagRss,
@@ -131,6 +134,9 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 app.get("/sitemap.xml", getSitemapXml);
+app.get("/sitemap-pages.xml", getPagesSitemap);
+app.get("/sitemap-articles.xml", getArticlesSitemap);
+app.get("/sitemap-news.xml", getNewsSitemap);
 app.get("/robots.txt", getRobotsTxt);
 app.get("/rss/author/:slug.xml", getAuthorRss);
 app.get("/rss/category/:slug.xml", getCategoryRss);

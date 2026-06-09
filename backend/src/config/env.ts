@@ -20,6 +20,8 @@ export const env = {
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
   SITE_URL: process.env.SITE_URL || "https://www.ultimatecomputersoftware.com",
+  // Publication name used in the Google News sitemap (<news:name>).
+  SITE_NAME: process.env.SITE_NAME || "Ultimate Computer Software",
   TWO_FACTOR_ENCRYPTION_KEY: process.env.TWO_FACTOR_ENCRYPTION_KEY || "",
   TWO_FACTOR_ISSUER: process.env.TWO_FACTOR_ISSUER || "Ultimate Computer Software",
   // Email Configuration
