@@ -166,6 +166,11 @@ export default function CategoryPage() {
           (category ? `Latest ${category.name} news and articles.` : undefined)
         }
         path={category ? `/category/${category.slug}` : undefined}
+        feeds={
+          category
+            ? [{ title: `${category.name} – RSS Feed`, path: `/rss/category/${category.slug}.xml` }]
+            : []
+        }
       />
       {category && (() => {
         const categoryUrl = absoluteSiteUrl(`/category/${category.slug}`);

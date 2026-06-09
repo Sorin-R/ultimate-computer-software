@@ -166,6 +166,7 @@ export default function AuthorPage() {
         title={a.name}
         description={a.bio || `Articles by ${a.name} on Ultimate Computer Software.`}
         path={`/author/${a.username ?? a.id}`}
+        feeds={[{ title: `${a.name} – RSS Feed`, path: `/rss/author/${a.id}.xml` }]}
       />
       <Helmet>
         {/* M6: Clean canonical URL — SEOHead already strips ?page=N via cleanCanonical default */}

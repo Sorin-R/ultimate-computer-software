@@ -103,6 +103,11 @@ export default function TagPage() {
         title={tag ? `#${tag.name} Articles` : "Tag"}
         description={tagDescription}
         path={`/tag/${slug}`}
+        feeds={
+          tag && slug
+            ? [{ title: `#${tag.name} – RSS Feed`, path: `/rss/tag/${slug}.xml` }]
+            : []
+        }
       />
       {tag && (
         <Helmet>

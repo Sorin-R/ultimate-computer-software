@@ -57,6 +57,13 @@ interface SEOHeadProps {
    * Defaults to true — pass false only for pages that genuinely own their query string.
    */
   cleanCanonical?: boolean;
+  /**
+   * RSS feeds to advertise via `<link rel="alternate" type="application/rss+xml">`
+   * for browser/feed-reader autodiscovery. Each `path` is resolved against
+   * SITE_URL. (Note: this is the standard use of rel="alternate" — it does NOT
+   * apply to sitemaps, which crawlers discover via robots.txt instead.)
+   */
+  feeds?: Array<{ title: string; path: string }>;
 }
 
 export default function SEOHead({
@@ -75,6 +82,7 @@ export default function SEOHead({
   section,
   tags = [],
   cleanCanonical = true,
+  feeds = [],
 }: SEOHeadProps) {
   const fullTitle = appendSiteName ? `${title} | Ultimate Computer Software` : title;
   // M6: Strip query params from the canonical URL so paginated variants
@@ -94,6 +102,17 @@ export default function SEOHead({
       <meta name="description" content={desc} />
       {author && <meta name="author" content={author} />}
       <link rel="canonical" href={url} />
+      {/* RSS autodiscovery — the standard, crawler/reader-recognised use of
+          rel="alternate". Sitemaps are advertised via robots.txt, not here. */}
+      {feeds.map((feed) => (
+        <link
+          key={`feed-${feed.path}`}
+          rel="alternate"
+          type="application/rss+xml"
+          title={feed.title}
+          href={`${SITE_URL}${feed.path}`}
+        />
+      ))}
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={desc} />
       <meta property="og:url" content={url} />
