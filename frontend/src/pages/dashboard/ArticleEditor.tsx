@@ -1289,7 +1289,7 @@ export default function ArticleEditor() {
               Category {requiredStar}
             </label>
             {!showNewCategory ? (
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
