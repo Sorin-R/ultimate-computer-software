@@ -3,8 +3,8 @@ import { ArticleStatus, PrismaClient } from "@prisma/client";
 import { promises as fs } from "fs";
 import path from "path";
 import sharp from "sharp";
-import { generateExcerpt, sanitizeHtml } from "../dist/utils/sanitize";
-import { uploadToR2, PUBLIC_URL } from "../dist/services/r2Service";
+import { generateExcerpt, sanitizeHtml } from "../utils/sanitize";
+import { uploadToR2, PUBLIC_URL } from "../services/r2Service";
 
 const prisma = new PrismaClient();
 
