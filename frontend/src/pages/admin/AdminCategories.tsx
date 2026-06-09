@@ -94,8 +94,8 @@ export default function AdminCategories() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black" />
         </div>
       ) : (
-        <div className="bg-white border border-black/15 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white border border-black/15 overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-neutral-100">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold">Name</th>
