@@ -330,6 +330,17 @@ function sanitizeArticleBody(html: string, fallbackAlt = "Article image"): strin
     wrapper.appendChild(iframe);
   });
 
+  // Wrap every table in a horizontally-scrollable container so wide tables
+  // scroll within their own box on narrow screens instead of overflowing the
+  // article card and forcing the whole page to scroll sideways on mobile.
+  document.querySelectorAll("table").forEach((table) => {
+    if (table.parentElement?.classList.contains("article-table-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "article-table-wrap";
+    table.parentNode?.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
+
   document.querySelectorAll("a[href]").forEach((anchor) => {
     const href = anchor.getAttribute("href") || "";
     const safeEmbedUrl = toYouTubeEmbedUrl(href);

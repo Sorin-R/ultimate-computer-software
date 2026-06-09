@@ -794,8 +794,25 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
   max-height: 600px;
 }
 
+/*
+ * Tables are wrapped in .article-table-wrap by sanitizeArticleBody() so they
+ * can scroll horizontally on narrow screens instead of overflowing the article
+ * card. The scroll lives on the wrapper; the table keeps a sensible minimum
+ * width so columns stay readable rather than squishing on mobile.
+ */
+.article-body .article-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5rem 0;
+}
+
 .article-body table {
-  @apply w-full border-collapse border border-gray-300 my-6;
+  @apply border-collapse border border-gray-300;
+  width: 100%;
+  min-width: 30rem;
+  margin: 0;
 }
 
 .article-body th,
@@ -805,6 +822,14 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
 
 .article-body th {
   @apply bg-gray-100 font-semibold;
+}
+
+/* Tighter cell padding on small screens so more of the table is visible. */
+@media (max-width: 640px) {
+  .article-body th,
+  .article-body td {
+    @apply px-3 py-2;
+  }
 }
 
 /*
