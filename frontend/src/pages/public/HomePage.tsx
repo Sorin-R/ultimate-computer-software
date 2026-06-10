@@ -777,11 +777,6 @@ export default function HomePage() {
                         </a>
                       )}
                       </div>
-                      {leadArticle.imageSourceUrl && (
-                        <a href={leadArticle.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
-                          Source: {leadArticle.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
-                        </a>
-                      )}
                       </>
                     )}
                     <Link
