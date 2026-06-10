@@ -44,6 +44,14 @@ import { trackAdminActivity } from "../middleware/adminActivity";
 
 const router = Router();
 
+// Internal route — bypasses auth for localhost (used by cron jobs/Docker exec)
+router.put("/articles/:id/audio/internal", (req, res, next) => {
+  if (req.ip === "127.0.0.1" || req.ip === "::ffff:127.0.0.1" || req.ip === "::1") {
+    return generateArticleAudioAdmin(req, res);
+  }
+  next();
+}, authenticate, authorize("ADMIN", "MODERATOR"), generateArticleAudioAdmin);
+
 router.use(authenticate, authorize("ADMIN", "MODERATOR"));
 router.use(trackAdminActivity);
 

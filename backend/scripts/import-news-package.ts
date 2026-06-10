@@ -257,6 +257,56 @@ function pipeTableToHtml(markdown: string): string {
   return `<table>${thead}${tbody}</table>`;
 }
 
+/**
+ * Extract key terms/phrases from article body for a default table
+ */
+function extractKeyPoints(html: string): string[] {
+  // Strip tags, get first 500 chars
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
+  // Find capitalized phrases (likely proper nouns: products, companies, features)
+  const matches = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+  // Deduplicate and take top 4-6 unique meaningful phrases
+  const seen = new Set<string>();
+  return [...new Set(matches)]
+    .filter((m) => m.length > 6 && !/^(The|This|That|With|From|When|They|Their|These|Those|About|After|While|Since)$/i.test(m))
+    .slice(0, 6);
+}
+
+/**
+ * Generate a default "Key Points" table when article has no table
+ */
+function generateDefaultTable(title: string, keyPoints: string[]): string {
+  const rows = keyPoints.length > 0
+    ? keyPoints.map((p) => `<tr><td>${escapeHtml(p)}</td></tr>`).join("")
+    : `<tr><td>${escapeHtml(title.slice(0, 80))}</td></tr>`;
+  return `<table><thead><tr><th>Key Points</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/**
+ * Insert table after the second paragraph (intro section)
+ */
+function insertTableAfterIntro(html: string, table: string): string {
+  const parts = html.split(/(<\/p>)/i);
+  // Find position after 2nd </p> (end of intro paragraph)
+  let count = 0;
+  let insertAt = 0;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === "</p>") {
+      count++;
+      if (count === 2) {
+        insertAt = i + 1; // right after the 2nd </p>
+        break;
+      }
+    }
+  }
+  if (insertAt === 0) {
+    // Fallback: insert after <article> tag
+    return html.replace(/(<article>)/i, `$1\n${table}\n`);
+  }
+  parts.splice(insertAt, 0, `\n${table}\n`);
+  return parts.join("");
+}
+
 function markdownChunkToHtml(chunk: string): string {
   const trimmed = chunk.trim();
 
@@ -523,7 +573,18 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
   const parsed = await parsePackage(options.packageDir);
   const imageUrls = await prepareImages(parsed, backendRoot, options.dryRun);
   const body = composeArticleHtml(parsed, imageUrls, options.imageSourceUrl);
-  const excerpt = generateExcerpt(body);
+
+  // HARD ENFORCEMENT: Every article MUST have a table. If missing, inject one.
+  let finalBody = body;
+  if (!/<table\b/i.test(body)) {
+    const title = parsed.title;
+    const keyPoints = extractKeyPoints(body);
+    const defaultTable = generateDefaultTable(title, keyPoints);
+    // Insert after first two paragraphs (intro section)
+    finalBody = insertTableAfterIntro(body, defaultTable);
+    console.log("⚠️ No table found — injected default table");
+  }
+  const excerpt = generateExcerpt(finalBody);
   const slug = createSlug(parsed.title);
   const keywordNames = [parsed.mainKeyword, ...parsed.secondaryKeywords];
 
@@ -542,7 +603,7 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
     console.log(`Image source: ${options.imageSourceUrl || "none"}`);
     console.log(`Video: ${parsed.videoUrl || "none"}`);
     console.log(`Status: ${options.status}`);
-    console.log(`Body characters: ${body.length}`);
+    console.log(`Body characters: ${finalBody.length}`);
     return;
   }
 
@@ -558,7 +619,7 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
   const articleData = {
     title: parsed.title,
     slug,
-    body,
+    body: finalBody,
     excerpt,
     mainKeyword: parsed.mainKeyword,
     authorName: author.name || "Admin",
@@ -589,7 +650,7 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
       skipDuplicates: true,
     });
   }
-  await saveArticleVersion(article.id, parsed.title, body, excerpt);
+  await saveArticleVersion(article.id, parsed.title, finalBody, excerpt);
 
   console.log(`${existing ? "Updated" : "Created"} article: ${parsed.title}`);
   console.log(`Slug: ${article.slug}`);
