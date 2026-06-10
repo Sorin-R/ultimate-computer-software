@@ -578,6 +578,13 @@ export default function ArticlePage() {
       setDisplayedArticlesCount(mobile ? ARTICLES_PER_PAGE : Number.MAX_SAFE_INTEGER);
 
       try {
+        // The newest-articles list doesn't depend on the article — start it
+        // immediately so it loads in parallel instead of as a third serial
+        // round trip after article → category-list.
+        const newestPromise = api
+          .get("/articles", { params: { page: 1, limit: 30 } })
+          .catch(() => null);
+
         const res = await api.get(`/articles/${slug}`);
         if (cancelled) return;
 
@@ -587,44 +594,39 @@ export default function ArticlePage() {
         );
         setArticle(fetched);
 
-        let sidebarRelated = initialRelated;
+        // Broader category list for the sidebar — only depends on the article's
+        // category, so it runs in parallel with the newest list above.
+        const byCategoryPromise = fetched?.category?.slug
+          ? api
+              .get("/articles", {
+                params: { category: fetched.category.slug, page: 1, limit: 30 },
+              })
+              .catch(() => null)
+          : Promise.resolve(null);
 
-        // Load a broader category list so the sidebar has enough entries.
-        try {
-          if (fetched?.category?.slug) {
-            const byCategoryRes = await api.get("/articles", {
-              params: { category: fetched.category.slug, page: 1, limit: 30 },
-            });
-            if (!cancelled) {
-              const byCategory = ((byCategoryRes.data?.articles ?? []) as RelatedArticle[]).filter(
-                (entry) => entry.slug !== fetched.slug
-              );
-              if (byCategory.length > 0) {
-                sidebarRelated = byCategory;
-              }
-            }
-          }
-        } catch {
-          // Keep existing related data from /articles/:slug as fallback.
-        }
-
+        const [byCategoryRes, newestRes] = await Promise.all([byCategoryPromise, newestPromise]);
         if (cancelled) return;
+
+        let sidebarRelated = initialRelated;
+        if (byCategoryRes) {
+          const byCategory = ((byCategoryRes.data?.articles ?? []) as RelatedArticle[]).filter(
+            (entry) => entry.slug !== fetched.slug
+          );
+          if (byCategory.length > 0) {
+            sidebarRelated = byCategory;
+          }
+        }
         setRelated(sidebarRelated);
 
-        // Always load fallback latest articles to show after same-category articles
-        try {
-          const newestRes = await api.get("/articles", {
-            params: { page: 1, limit: 30 },
-          });
-          if (!cancelled) {
-            const existingSlugs = new Set(sidebarRelated.map((entry) => entry.slug));
-            const newest = ((newestRes.data?.articles ?? []) as RelatedArticle[]).filter(
-              (entry) => entry.slug !== fetched.slug && !existingSlugs.has(entry.slug)
-            );
-            setFallbackNewest(newest);
-          }
-        } catch {
-          if (!cancelled) setFallbackNewest([]);
+        // Fallback latest articles shown after same-category articles.
+        if (newestRes) {
+          const existingSlugs = new Set(sidebarRelated.map((entry) => entry.slug));
+          const newest = ((newestRes.data?.articles ?? []) as RelatedArticle[]).filter(
+            (entry) => entry.slug !== fetched.slug && !existingSlugs.has(entry.slug)
+          );
+          setFallbackNewest(newest);
+        } else {
+          setFallbackNewest([]);
         }
 
         // Track this read for anonymous personalisation.
