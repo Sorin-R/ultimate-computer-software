@@ -39,6 +39,25 @@ const PLACEMENT_FALLBACKS: Record<string, string[]> = {
   dashboard_sidebar: ["dashboard_sidebar"],
 };
 
+// Every AdBanner on a page used to fetch /api/config/adsense independently
+// (the homepage mounts 5+ banners → 5 identical requests). Share one in-flight
+// promise per device; a failed fetch is evicted so a later mount can retry.
+const adConfigCache: Partial<Record<string, Promise<Ad[]>>> = {};
+
+function fetchAdConfig(device: "mobile" | "desktop"): Promise<Ad[]> {
+  const cached = adConfigCache[device];
+  if (cached) return cached;
+  const promise = fetch(`/api/config/adsense?device=${device}`)
+    .then((response) => (response.ok ? response.json() : { ads: [] }))
+    .then((data) => (data.ads as Ad[] | undefined) ?? [])
+    .catch(() => {
+      delete adConfigCache[device];
+      return [] as Ad[];
+    });
+  adConfigCache[device] = promise;
+  return promise;
+}
+
 export default function AdBanner({
   placement,
   className = "",
@@ -66,28 +85,29 @@ export default function AdBanner({
   }, []);
 
   useEffect(() => {
-    const fetchAds = async () => {
-      try {
-        const response = await fetch(`/api/config/adsense?device=${device}`);
-        if (!response.ok) return;
-        const data = await response.json();
+    let cancelled = false;
+
+    fetchAdConfig(device)
+      .then((ads) => {
+        if (cancelled) return;
         const placementCandidates = PLACEMENT_FALLBACKS[placement] ?? [placement];
         const placementsSet = new Set(placementCandidates);
-        const candidates =
-          (data.ads as Ad[] | undefined)?.filter((a) => placementsSet.has(a.placement)) ?? [];
+        const candidates = ads.filter((a) => placementsSet.has(a.placement));
         const preferredTarget = device === "mobile" ? "MOBILE" : "DESKTOP";
         const foundAd =
           candidates.find((candidate) => candidate.deviceTarget === preferredTarget) ||
           candidates.find((candidate) => candidate.deviceTarget === "ALL") ||
           null;
         setAd(foundAd);
-      } catch {
+      })
+      .catch(() => {
         // Silently fail — missing ad should never break layout
-        setAd(null);
-      }
-    };
+        if (!cancelled) setAd(null);
+      });
 
-    fetchAds();
+    return () => {
+      cancelled = true;
+    };
   }, [placement, device]);
 
   if (!ad) return null;
