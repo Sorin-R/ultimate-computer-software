@@ -179,9 +179,31 @@ app.get("/api/health", (_req, res) => {
 // tags + JSON-LD injected into <head>. Real users pass through untouched so
 // the SPA still loads normally. Must come AFTER all API/SEO routes so those
 // take precedence, and BEFORE errorHandler so the catch-all can still respond.
-// Serve built frontend dist for production
+// Serve built frontend dist for production.
+// - /assets/* filenames are content-hashed by Vite → safe to cache for a year.
+// - Everything else (favicon, manifest, sw.js) gets a short TTL so updates
+//   propagate within a minute.
+// - index: false so "/" falls through to the SPA fallback below, which
+//   controls the HTML cache header in one place.
 const frontendDist = path.join(process.cwd(), "..", "frontend", "dist");
-app.use(express.static(frontendDist));
+app.use(
+  express.static(frontendDist, {
+    index: false,
+    etag: true,
+    setHeaders(res, filePath) {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=60");
+      }
+    },
+  })
+);
+
+// The SPA shell only changes when a new build is deployed (container restart),
+// so read it from disk once instead of a synchronous read on every request —
+// readFileSync per request blocks the event loop under load.
+let cachedIndexHtml: string | null = null;
 
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
@@ -189,8 +211,14 @@ app.use((req, res, next) => {
   ogBotMiddleware(req, res, (err?: any) => {
     if (err) return next(err);
     // SPA fallback: serve index.html for frontend routes
-    const indexHtml = path.join(frontendDist, "index.html");
-    res.status(200).type("html").send(fs.readFileSync(indexHtml, "utf8"));
+    if (cachedIndexHtml === null) {
+      cachedIndexHtml = fs.readFileSync(path.join(frontendDist, "index.html"), "utf8");
+    }
+    res
+      .status(200)
+      .type("html")
+      .setHeader("Cache-Control", "public, max-age=60")
+      .send(cachedIndexHtml);
   });
 });
 
