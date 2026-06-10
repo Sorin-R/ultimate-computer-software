@@ -26,7 +26,10 @@ cp -r backend "$DEPLOY_DIR/"
 cd "$DEPLOY_DIR"
 "${COMPOSE[@]}" build web
 "${COMPOSE[@]}" up -d postgres
-"${COMPOSE[@]}" run --rm --no-deps web npx prisma migrate deploy
+# -T + </dev/null: this script is piped to bash over SSH stdin; without them
+# `docker compose run` attaches stdin and swallows the rest of the script,
+# so bash hits EOF after this line and the web container never restarts.
+"${COMPOSE[@]}" run --rm -T --no-deps web npx prisma migrate deploy </dev/null
 "${COMPOSE[@]}" up -d web
 docker image prune -f
 
