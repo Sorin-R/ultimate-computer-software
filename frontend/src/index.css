@@ -868,6 +868,7 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
  * to match the design spec.
  */
 .article-body .article-media {
+  position: relative;
   aspect-ratio: 16 / 9;
   width: 100%;
   max-width: 896px;

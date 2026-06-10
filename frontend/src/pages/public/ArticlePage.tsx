@@ -276,6 +276,39 @@ function sanitizeArticleBody(html: string, fallbackAlt = "Article image"): strin
     wrapper.setAttribute("style", "aspect-ratio: 16 / 9;");
     img.parentNode?.insertBefore(wrapper, img);
     wrapper.appendChild(img);
+
+    // If the paragraph right after the image is just a bare source link
+    // (e.g. <p><a href="https://example.com">example.com</a></p>), lift it onto
+    // the image as a bottom-right "Source:" badge — matching the main/hero image
+    // label — instead of leaving it as a caption underneath the image.
+    const imageParagraph = wrapper.parentElement;
+    const nextEl = imageParagraph?.nextElementSibling ?? null;
+    if (nextEl && nextEl.tagName === "P") {
+      const link = nextEl.querySelector("a[href]");
+      const linkText = (link?.textContent || "").trim();
+      const paraText = (nextEl.textContent || "").trim();
+      // Only treat it as a source credit when the paragraph is essentially just
+      // the link (optionally prefixed with "Source:"), so we never swallow a real
+      // paragraph that happens to contain an inline link.
+      const residual = paraText
+        .replace(linkText, "")
+        .replace(/source:?/i, "")
+        .replace(/[\s|·—–-]/g, "");
+      const href = link?.getAttribute("href") || "";
+      if (link && linkText && href && residual.length === 0) {
+        const label = href.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "");
+        const badge = document.createElement("a");
+        badge.setAttribute("href", href);
+        badge.setAttribute("target", "_blank");
+        badge.setAttribute("rel", "noopener noreferrer");
+        // Same classes as the hero image label so it renders identically.
+        badge.className =
+          "absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors";
+        badge.textContent = `Source: ${label}`;
+        wrapper.appendChild(badge);
+        nextEl.remove();
+      }
+    }
   });
 
   document.querySelectorAll("iframe").forEach((iframe) => {
