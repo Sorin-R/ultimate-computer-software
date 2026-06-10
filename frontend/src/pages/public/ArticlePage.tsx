@@ -304,7 +304,7 @@ function sanitizeArticleBody(html: string, fallbackAlt = "Article image"): strin
         badge.setAttribute("rel", "noopener noreferrer");
         // Same classes as the hero image label so it renders identically.
         badge.className =
-          "absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors";
+          "absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors";
         badge.textContent = `Source: ${label}`;
         wrapper.appendChild(badge);
         nextEl.remove();
@@ -1066,7 +1066,7 @@ export default function ArticlePage() {
                   href={article.imageSourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors"
+                  className="absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors"
                 >
                   Source: {article.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
                 </a>
