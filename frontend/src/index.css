@@ -712,9 +712,8 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
 }
 
 .article-body .article-media > a {
-  color: white;
-  text-decoration: none;
-  font-weight: 400;
+  color: #ffffff;
+  text-decoration-line: none;
 }
 
 .article-body blockquote {
