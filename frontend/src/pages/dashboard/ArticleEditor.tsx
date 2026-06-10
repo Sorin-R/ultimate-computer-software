@@ -814,10 +814,9 @@ export default function ArticleEditor() {
       editor.insertEmbed(index, "image", trimmedImg, "user");
       if (sourceUrl) {
         editor.insertText(index + 1, "\n", "user");
-        const linkHtml = `<p><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${sourceDomain}</a></p>`;
-        editor.clipboard.dangerouslyPasteHTML(index + 2, linkHtml, "user");
-        editor.insertText(index + 3, "\n", "user");
-        editor.setSelection(index + 4, 0);
+        editor.insertText(index + 2, sourceDomain, "link", sourceUrl, "user");
+        editor.insertText(index + 2 + sourceDomain.length, "\n", "user");
+        editor.setSelection(index + 3 + sourceDomain.length, 0);
       } else {
         editor.insertText(index + 1, "\n", "user");
         editor.setSelection(index + 2, 0);
