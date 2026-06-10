@@ -22,6 +22,7 @@ interface Article {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl?: string | null;
   audioStatus?: ArticleAudioStatus | string | null;
   publishedAt: string | null;
@@ -38,6 +39,7 @@ interface MainArticle {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl?: string | null;
   audioStatus?: ArticleAudioStatus | string | null;
   publishedAt: string | null;
@@ -55,6 +57,7 @@ interface FeedArticle {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl?: string | null;
   audioStatus?: ArticleAudioStatus | string | null;
   publishedAt: string | null;
@@ -71,6 +74,7 @@ interface TopStoryArticle {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl?: string | null;
   audioStatus?: ArticleAudioStatus | string | null;
   publishedAt: string | null;
@@ -260,6 +264,7 @@ export default function HomePage() {
       slug: string;
       excerpt: string | null;
       imageUrl: string | null;
+  imageSourceUrl?: string | null;
       audioUrl?: string | null;
       audioStatus?: ArticleAudioStatus | string | null;
       publishedAt: string | null;
@@ -744,7 +749,9 @@ export default function HomePage() {
                 {leadArticle && (
                   <article className="lg:col-span-8">
                     {leadArticle.imageUrl && (
-                      <Link to={`/${leadArticle.slug}`} className="relative block mb-5 overflow-hidden rounded-lg max-w-4xl">
+                      <>
+                      <div className="relative mb-5 max-w-4xl">
+                      <Link to={`/${leadArticle.slug}`} className="block overflow-hidden rounded-lg">
                         {hasReadyAudio(leadArticle) && <ArticleListenBadge />}
                         <img
                           src={getImageUrl(leadArticle.imageUrl) || leadArticle.imageUrl}
@@ -755,6 +762,18 @@ export default function HomePage() {
                           loading="eager"
                         />
                       </Link>
+                      {leadArticle.imageSourceUrl && (
+                        <a href={leadArticle.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
+                          Source: {leadArticle.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
+                        </a>
+                      )}
+                      </div>
+                      {leadArticle.imageSourceUrl && (
+                        <a href={leadArticle.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
+                          Source: {leadArticle.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
+                        </a>
+                      )}
+                      </>
                     )}
                     <Link
                       to={`/category/${leadArticle.category.slug}`}
@@ -1224,10 +1243,10 @@ export default function HomePage() {
                       <Fragment key={article.id}>
                         <article className="py-5 border-t border-black/15">
                           {article.imageUrl && (
+                            <div className="relative mb-4 overflow-hidden rounded-lg" style={{ aspectRatio: "16/9" }}>
                             <Link
                               to={`/${article.slug}`}
-                              className="relative block mb-4 overflow-hidden rounded-lg"
-                              style={{ aspectRatio: "16/9" }}
+                              className="block w-full h-full"
                             >
                               {hasReadyAudio(article) && <ArticleListenBadge />}
                               <img
@@ -1237,6 +1256,12 @@ export default function HomePage() {
                                 loading="lazy"
                               />
                             </Link>
+                            {article.imageSourceUrl && (
+                              <a href={article.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
+                                Source: {article.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
+                              </a>
+                            )}
+                            </div>
                           )}
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs uppercase tracking-[0.08em] mb-3">
                             <Link

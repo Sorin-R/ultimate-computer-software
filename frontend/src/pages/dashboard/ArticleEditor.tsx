@@ -211,12 +211,36 @@ export default function ArticleEditor() {
   const [loading, setLoading] = useState(true);
   const [isHtmlMode, setIsHtmlMode] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
+  const [imageSourceUrl, setImageSourceUrl] = useState("");
+  const [remoteImageUrl, setRemoteImageUrl] = useState("");
+  const [embedMode, setEmbedMode] = useState(false);
+
+  // Copyright confirmation modal
+  const [copyrightModal, setCopyrightModal] = useState<{ show: boolean }>({ show: false });
+  const copyrightCallbackRef = useRef<(() => void) | null>(null);
+
+  // Embed image modal (body images)
+  const [embedModal, setEmbedModal] = useState({ show: false, imgUrl: "", sourceUrl: "" });
+
+  // YouTube modal
+  const [youtubeModal, setYoutubeModal] = useState({ show: false, url: "" });
+
+  // Image from URL modal
+  const [imageUrlModal, setImageUrlModal] = useState({ show: false, url: "" });
   const [isUploading, setIsUploading] = useState(false);
   const [isDraggingFeaturedImage, setIsDraggingFeaturedImage] = useState(false);
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const [isUploadingBodyMedia, setIsUploadingBodyMedia] = useState(false);
   const quillRef = useRef<ReactQuill | null>(null);
   const bodyImageInputRef = useRef<HTMLInputElement | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Floating inline toolbar — appears under the text inside the editor
+  const [inlineToolbar, setInlineToolbar] = useState<{ show: boolean; top: number }>({ show: false, top: 0 });
+
+  // Auto-expand: grow editor when cursor is within 5 lines of the bottom
+  const [editorExtraHeight, setEditorExtraHeight] = useState(0);
+  const LINE_HEIGHT = 24; // px per line in Quill
 
   // ─── C1: Auto-save state ──────────────────────────────────────────────────
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saved" | "unsaved">("idle");
@@ -290,6 +314,7 @@ export default function ArticleEditor() {
             authorName?: string;
             originalSourceUrl?: string | null;
             imageUrl?: string | null;
+            imageSourceUrl?: string | null;
             mainKeyword?: string;
             tags?: { tag?: { id?: string }; tagId?: string }[];
             scheduledAt?: string | null;
@@ -303,6 +328,7 @@ export default function ArticleEditor() {
           setIsCrossPost(Boolean(a.originalSourceUrl));
           setMainKeyword(a.mainKeyword || "");
           setImageUrl(a.imageUrl || "");
+          setImageSourceUrl(a.imageSourceUrl || "");
           setSelectedTags(a.tags?.map((t) => t.tag?.id || t.tagId || "").filter(Boolean) as string[]);
           if (a.scheduledAt) {
             setScheduleMode(true);
@@ -471,6 +497,66 @@ export default function ArticleEditor() {
     }
   };
 
+  // ─── Image upload from URL ───────────────────────────────────────────────
+  // ─── Copyright confirmation before uploading images ─────────────────────
+  const requireCopyrightConfirm = (onConfirm: () => void) => {
+    copyrightCallbackRef.current = onConfirm;
+    setCopyrightModal({ show: true });
+  };
+
+  const handleCopyrightConfirm = () => {
+    setCopyrightModal({ show: false });
+    const cb = copyrightCallbackRef.current;
+    copyrightCallbackRef.current = null;
+    cb?.();
+  };
+
+  const handleCopyrightCancel = () => {
+    setCopyrightModal({ show: false });
+    copyrightCallbackRef.current = null;
+  };
+
+  const handleUploadFromUrl = () => {
+    const trimmed = remoteImageUrl.trim();
+    if (!trimmed) {
+      setError("Please enter an image URL.");
+      return;
+    }
+
+    // Basic client-side validation
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        setError("Only http and https URLs are allowed.");
+        return;
+      }
+    } catch {
+      setError("Please enter a valid URL (e.g. https://example.com/image.jpg).");
+      return;
+    }
+
+    requireCopyrightConfirm(async () => {
+      setIsUploading(true);
+      setError("");
+
+      try {
+        const { data } = await api.post("/upload/from-url", { imageUrl: trimmed });
+
+        if (!data?.imageUrl) {
+          throw new Error("No imageUrl in response");
+        }
+
+        setImageUrl(data.imageUrl);
+        setRemoteImageUrl("");
+      } catch (err: unknown) {
+        const e = err as AxiosError<{ error?: string }> & { message?: string };
+        setError(e.response?.data?.error || e.message || "Failed to load image from URL");
+      } finally {
+        setIsUploading(false);
+      }
+    });
+  };
+
   // ─── Image upload ─────────────────────────────────────────────────────────
   const validateFeaturedImageFile = (file: File): string | null => {
     if (!file.type.startsWith("image/")) {
@@ -514,14 +600,17 @@ export default function ArticleEditor() {
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    await uploadFeaturedImageFile(file);
+
+    requireCopyrightConfirm(() => {
+      uploadFeaturedImageFile(file);
+    });
   };
 
-  const handleFeaturedImageDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  const handleFeaturedImageDrop = (e: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
     e.preventDefault();
     setIsDraggingFeaturedImage(false);
@@ -530,7 +619,9 @@ export default function ArticleEditor() {
       setError("Only image files can be dropped for Article Photo.");
       return;
     }
-    await uploadFeaturedImageFile(file);
+    requireCopyrightConfirm(() => {
+      uploadFeaturedImageFile(file);
+    });
   };
 
   const handleFeaturedImageDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -580,13 +671,18 @@ export default function ArticleEditor() {
     }
   };
 
+  // Saved cursor position — captured before modals steal focus from Quill
+  const savedCursorRef = useRef<number | null>(null);
+
   const insertImageIntoBody = (url: string) => {
     const editor = quillRef.current?.getEditor?.();
     if (editor) {
-      const range = editor.getSelection(true) || { index: editor.getLength(), length: 0 };
-      editor.insertEmbed(range.index, "image", url, "user");
-      editor.insertText(range.index + 1, "\n", "user");
-      editor.setSelection(range.index + 2, 0);
+      // Use saved cursor from before modal, or current selection, or end of doc
+      const index = savedCursorRef.current ?? editor.getSelection()?.index ?? editor.getLength();
+      savedCursorRef.current = null;
+      editor.insertEmbed(index, "image", url, "user");
+      editor.insertText(index + 1, "\n", "user");
+      editor.setSelection(index + 2, 0);
     } else {
       setBody((prev) => `${prev}<p><img src="${url}" alt="" /></p>`);
     }
@@ -601,60 +697,166 @@ export default function ArticleEditor() {
     }
     const editor = quillRef.current?.getEditor?.();
     if (editor) {
-      const range = editor.getSelection(true) || { index: editor.getLength(), length: 0 };
-      editor.insertEmbed(range.index, "video", url, "user");
-      editor.insertText(range.index + 1, "\n", "user");
-      editor.setSelection(range.index + 2, 0);
+      const index = savedCursorRef.current ?? editor.getSelection()?.index ?? editor.getLength();
+      savedCursorRef.current = null;
+      editor.insertEmbed(index, "video", url, "user");
+      editor.insertText(index + 1, "\n", "user");
+      editor.setSelection(index + 2, 0);
     } else {
       setBody((prev) => `${prev}<p><a href="${url}">${url}</a></p>`);
     }
   };
 
   const promptForYouTube = () => {
-    const url = window.prompt(
-      "Paste a YouTube URL (e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…):"
-    );
-    if (url) insertVideoIntoBody(url);
+    setYoutubeModal({ show: true, url: "" });
   };
 
-  // ─── C5: Insert CodeSandbox embed ─────────────────────────────────────────
-  const promptForCodeSandbox = () => {
-    const url = window.prompt(
-      "Paste a CodeSandbox URL (e.g. https://codesandbox.io/s/your-sandbox-id):"
-    );
-    if (!url?.trim()) return;
-    // The backend will convert /s/<id> to /embed/<id> during sanitization.
-    // We just insert a bare link in the body — the sanitizer auto-upgrades it.
-    const trimmed = url.trim();
-    setBody((prev) => `${prev}<p><a href="${trimmed}">${trimmed}</a></p>`);
+  const handleYoutubeModalInsert = () => {
+    const url = youtubeModal.url.trim();
+    if (!url) {
+      setError("Please enter a YouTube URL.");
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      setError("Please enter a full YouTube URL starting with https://");
+      return;
+    }
+    insertVideoIntoBody(url);
+    setYoutubeModal({ show: false, url: "" });
+    setError("");
   };
 
-  // ─── C5: Insert GitHub Gist link ─────────────────────────────────────────
-  const promptForGist = () => {
-    const url = window.prompt(
-      "Paste a GitHub Gist URL (e.g. https://gist.github.com/username/id):"
-    );
-    if (!url?.trim()) return;
-    const trimmed = url.trim();
-    setBody((prev) => `${prev}<p><a href="${trimmed}">${trimmed}</a></p>`);
+  const handleYoutubeModalCancel = () => {
+    setYoutubeModal({ show: false, url: "" });
+  };
+
+  // ─── Insert image from URL (body media) — styled modal ───────────────────
+  const promptForImageUrl = () => {
+    setImageUrlModal({ show: true, url: "" });
+  };
+
+  const handleImageUrlModalSubmit = () => {
+    const trimmed = imageUrlModal.url.trim();
+    if (!trimmed) {
+      setError("Please enter an image URL.");
+      return;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        setError("Only http and https URLs are supported.");
+        return;
+      }
+    } catch {
+      setError("Please enter a valid URL.");
+      return;
+    }
+
+    // Close the URL modal first, then show copyright confirmation
+    setImageUrlModal({ show: false, url: "" });
+
+    requireCopyrightConfirm(() => {
+      setIsUploadingBodyMedia(true);
+      setError("");
+
+      api.post("/upload/from-url", { imageUrl: trimmed })
+        .then(({ data }) => {
+          if (!data?.imageUrl) throw new Error("No imageUrl in response");
+          const finalUrl = resolveImageUrl(data.imageUrl) || data.imageUrl;
+          insertImageIntoBody(finalUrl);
+        })
+        .catch((err: AxiosError<{ error?: string }> & { message?: string }) => {
+          setError(err.response?.data?.error || err.message || "Failed to load image from URL");
+        })
+        .finally(() => setIsUploadingBodyMedia(false));
+    });
+  };
+
+  const handleImageUrlModalCancel = () => {
+    setImageUrlModal({ show: false, url: "" });
+  };
+
+  // ─── Embed image via URL (body media) — styled modal ───────────────────
+  const promptForEmbedImage = () => {
+    setEmbedModal({ show: true, imgUrl: "", sourceUrl: "" });
+  };
+
+  const handleEmbedModalInsert = () => {
+    const trimmedImg = embedModal.imgUrl.trim();
+    if (!trimmedImg) {
+      setError("Please enter an image URL.");
+      return;
+    }
+
+    try {
+      const parsed = new URL(trimmedImg);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        setError("Only http and https URLs are supported.");
+        return;
+      }
+    } catch {
+      setError("Please enter a valid image URL.");
+      return;
+    }
+
+    const sourceUrl = embedModal.sourceUrl.trim();
+    const sourceDomain = sourceUrl
+      ? (() => { try { return new URL(sourceUrl).hostname; } catch { return sourceUrl; } })()
+      : "";
+
+    // Insert at saved cursor position or end of document
+    const editor = quillRef.current?.getEditor?.();
+    if (editor) {
+      const index = savedCursorRef.current ?? editor.getSelection()?.index ?? editor.getLength();
+      savedCursorRef.current = null;
+
+      if (sourceUrl) {
+        // Use CSS classes (Quill preserves them unlike inline styles)
+        const html = `<div class="article-media img-container"><img src="${trimmedImg}" alt="" /><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="img-source-link">${sourceDomain}</a></div>`;
+        editor.clipboard.dangerouslyPasteHTML(index, html, "user");
+      } else {
+        editor.insertEmbed(index, "image", trimmedImg, "user");
+      }
+      editor.insertText(index + 1, "\n", "user");
+      editor.setSelection(index + 2, 0);
+    } else {
+      const html = sourceUrl
+        ? `<div class="article-media img-container"><img src="${trimmedImg}" alt="" /><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="img-source-link">${sourceDomain}</a></div>`
+        : `<img src="${trimmedImg}" alt="" />`;
+      setBody((prev) => `${prev}${html}`);
+    }
+
+    setEmbedModal({ show: false, imgUrl: "", sourceUrl: "" });
+    setError("");
+  };
+
+  const handleEmbedModalCancel = () => {
+    setEmbedModal({ show: false, imgUrl: "", sourceUrl: "" });
   };
 
   const triggerBodyImageDialog = () => {
     bodyImageInputRef.current?.click();
   };
 
-  const handleBodyImageInput = async (
+  const handleBodyImageInput = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
-    for (const file of files) {
-      const url = await uploadBodyImageFile(file);
-      if (url) insertImageIntoBody(url);
-    }
+    if (files.length === 0) return;
+
+    requireCopyrightConfirm(() => {
+      (async () => {
+        for (const file of files) {
+          const url = await uploadBodyImageFile(file);
+          if (url) insertImageIntoBody(url);
+        }
+      })();
+    });
   };
 
-  const handleEditorDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  const handleEditorDrop = (e: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
     e.preventDefault();
     setIsDraggingMedia(false);
@@ -665,10 +867,15 @@ export default function ArticleEditor() {
       setError("Only image files can be dropped here.");
       return;
     }
-    for (const file of files) {
-      const url = await uploadBodyImageFile(file);
-      if (url) insertImageIntoBody(url);
-    }
+
+    requireCopyrightConfirm(() => {
+      (async () => {
+        for (const file of files) {
+          const url = await uploadBodyImageFile(file);
+          if (url) insertImageIntoBody(url);
+        }
+      })();
+    });
   };
 
   const handleEditorDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -696,6 +903,69 @@ export default function ArticleEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isAdmin]
   );
+
+  // ─── Floating inline toolbar — appears at cursor position ─────────────
+  useEffect(() => {
+    const quill = quillRef.current?.getEditor?.();
+    if (!quill) return;
+
+    let editorOffsetTop = 0;
+
+    const updateToolbar = () => {
+      // Show only when there's actual text content
+      const text = quill.getText().trim();
+      if (!text) {
+        setInlineToolbar({ show: false, top: 0 });
+        return;
+      }
+
+      // Compute editor offset once
+      if (!editorOffsetTop) {
+        const editorEl = quill.root as HTMLElement;
+        const wrapperEl = editorContainerRef.current;
+        if (editorEl && wrapperEl) {
+          editorOffsetTop = editorEl.getBoundingClientRect().top - wrapperEl.getBoundingClientRect().top;
+        }
+      }
+
+      // Position at the CURSOR (selection), not at end of content
+      const selection = quill.getSelection();
+      const cursorIndex = selection ? selection.index : quill.getLength() - 1;
+      const bounds = quill.getBounds(Math.max(0, cursorIndex));
+      if (!bounds) {
+        setInlineToolbar({ show: false, top: 0 });
+        return;
+      }
+
+      setInlineToolbar({
+        show: true,
+        top: editorOffsetTop + bounds.top + bounds.height + 10,
+      });
+
+      // Auto-expand editor: when end of content is within 5 lines of bottom
+      const editorEl = quill.root as HTMLElement;
+      const editorHeight = editorEl.clientHeight;
+      const endBounds = quill.getBounds(Math.max(0, quill.getLength() - 1));
+      if (endBounds) {
+        const endBottom = endBounds.top + endBounds.height;
+        const threshold = 5 * LINE_HEIGHT;
+        if (endBottom > editorHeight - threshold) {
+          setEditorExtraHeight((prev) => prev + threshold);
+        }
+      }
+    };
+
+    quill.on("selection-change", updateToolbar);
+    quill.on("text-change", updateToolbar);
+
+    // Initial call
+    updateToolbar();
+
+    return () => {
+      quill.off("selection-change", updateToolbar);
+      quill.off("text-change", updateToolbar);
+    };
+  }, [body]); // re-bind when body content changes (e.g. template applied)
 
   // ─── C7: Apply template ───────────────────────────────────────────────────
   const handleApplyTemplate = () => {
@@ -758,6 +1028,7 @@ export default function ArticleEditor() {
         originalSourceUrl: originalSourceUrl.trim() || null,
         mainKeyword: mainKeyword.trim(),
         imageUrl,
+        imageSourceUrl: imageSourceUrl || null,
         tagIds: selectedTags,
       };
 
@@ -813,6 +1084,9 @@ export default function ArticleEditor() {
 
   return (
     <>
+      {editorExtraHeight > 0 && (
+        <style>{`.ql-editor { min-height: ${320 + editorExtraHeight}px !important; }`}</style>
+      )}
       <SEOHead title={isEdit ? "Edit Article" : "New Article"} />
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold [font-family:Georgia,'Times_New_Roman',serif] text-neutral-900">
@@ -1025,72 +1299,199 @@ export default function ArticleEditor() {
           <label className="block text-sm font-medium text-neutral-700 mb-2">
             Article Photo {requiredStar}
           </label>
-          <p className="text-xs text-neutral-500 mb-2">
-            Supports JPEG, PNG, WebP, GIF {isAdmin ? "(any size)" : "(max 3MB)"} — will be optimized to <span className="font-mono font-semibold">896×504px</span> (16:9 landscape) and converted to WebP
-          </p>
-          <div
-            onDrop={handleFeaturedImageDrop}
-            onDragOver={handleFeaturedImageDragOver}
-            onDragLeave={handleFeaturedImageDragLeave}
-            className="rounded-lg"
-          >
-            {imageUrl ? (
-              <div className="mb-4">
-                <div
-                  className={`relative inline-block rounded-lg transition ${
-                    isDraggingFeaturedImage
-                      ? "ring-2 ring-[#b5121b] ring-offset-2 ring-offset-white"
-                      : ""
-                  }`}
-                >
-                  <img
-                    src={imageUrl}
-                    alt="Article preview"
-                    className="max-w-xs h-auto rounded-lg border border-black/15"
+
+          {/* ── Upload vs Embed tabs ── */}
+          <div className="flex gap-0 mb-3 border-b border-black/15">
+            <button
+              type="button"
+              onClick={() => setEmbedMode(false)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                !embedMode
+                  ? "bg-white border border-black/15 border-b-white text-neutral-900"
+                  : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
+              }`}
+            >
+              📤 Upload &amp; Store
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmbedMode(true)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                embedMode
+                  ? "bg-white border border-black/15 border-b-white text-neutral-900"
+                  : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
+              }`}
+            >
+              🔗 Embed via URL
+            </button>
+          </div>
+
+          {!embedMode ? (
+            /* ── UPLOAD TAB: copy to our servers ── */
+            <>
+              <p className="text-xs text-neutral-500 mb-2">
+                Upload or fetch an image — it's copied and optimized on our servers.
+                Best for CC0 / licensed images you have rights to.
+              </p>
+
+              {/* ── Upload from URL ── */}
+              <div className="mb-3 p-3 border border-blue-200 bg-blue-50/50 rounded-lg">
+                <p className="text-xs font-semibold text-neutral-700 mb-2">🌐 Paste an image URL</p>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={remoteImageUrl}
+                    onChange={(e) => setRemoteImageUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleUploadFromUrl(); }}
+                    placeholder="https://example.com/image.jpg"
+                    disabled={isUploading}
+                    className="flex-1 px-4 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                   />
                   <button
                     type="button"
-                    onClick={() => setImageUrl("")}
-                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+                    onClick={handleUploadFromUrl}
+                    disabled={isUploading || !remoteImageUrl.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   >
-                    ✕
+                    {isUploading ? "Loading…" : "Load & Store"}
                   </button>
                 </div>
-                <p className="text-xs text-neutral-500 mt-2">
-                  Click ✕ to remove the photo, or drag &amp; drop a new image to replace it
+                <p className="text-[11px] text-neutral-500 mt-1.5">
+                  Fetches from the URL, copies to our servers, and optimizes to 896×504 WebP.
                 </p>
               </div>
-            ) : (
+
+              {/* File upload drop zone */}
               <div
-                className={`border-2 border-dashed rounded-lg p-6 text-center transition ${
-                  isDraggingFeaturedImage
-                    ? "border-[#b5121b] bg-[#b5121b]/5"
-                    : "border-black/25 hover:border-black/40"
-                }`}
+                onDrop={handleFeaturedImageDrop}
+                onDragOver={handleFeaturedImageDragOver}
+                onDragLeave={handleFeaturedImageDragLeave}
+                className="rounded-lg"
               >
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  disabled={isUploading}
-                  className="hidden"
-                  id="article-image-input"
-                />
-                <label htmlFor="article-image-input" className="cursor-pointer block">
-                  <p className="text-sm font-medium text-neutral-700 mb-1">
-                    {isUploading
-                      ? "Uploading..."
-                      : isDraggingFeaturedImage
-                      ? "Drop image to upload"
-                      : "Click or drag & drop article photo"}
-                  </p>
-                  <p className="text-xs text-neutral-500">
-                    Supports JPEG, PNG, WebP, GIF {isAdmin ? "(any size)" : "(max 3MB)"} — will be optimized to 896×504px
-                  </p>
-                </label>
+                {imageUrl ? (
+                  <div className="mb-4">
+                    <div
+                      className={`relative inline-block rounded-lg transition ${
+                        isDraggingFeaturedImage
+                          ? "ring-2 ring-[#b5121b] ring-offset-2 ring-offset-white"
+                          : ""
+                      }`}
+                    >
+                      <img
+                        src={imageUrl}
+                        alt="Article preview"
+                        className="max-w-xs h-auto rounded-lg border border-black/15"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-xs text-neutral-500 mt-2">
+                      Click ✕ to remove, or drag &amp; drop a new image to replace.
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition ${
+                      isDraggingFeaturedImage
+                        ? "border-[#b5121b] bg-[#b5121b]/5"
+                        : "border-black/25 hover:border-black/40"
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      disabled={isUploading}
+                      className="hidden"
+                      id="article-image-input"
+                    />
+                    <label htmlFor="article-image-input" className="cursor-pointer block">
+                      <p className="text-sm font-medium text-neutral-700 mb-1">
+                        {isUploading
+                          ? "Uploading..."
+                          : isDraggingFeaturedImage
+                          ? "Drop image to upload"
+                          : "Click or drag & drop article photo"}
+                      </p>
+                      <p className="text-xs text-neutral-500">
+                        JPEG, PNG, WebP, GIF {isAdmin ? "(any size)" : "(max 3MB)"} → 896×504 WebP
+                      </p>
+                    </label>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            /* ── EMBED TAB: hotlink with attribution ── */
+            <div className="p-4 border border-emerald-200 bg-emerald-50/30 rounded-lg">
+              <p className="text-xs text-neutral-600 mb-3">
+                The image stays on the external server — we only display it. No copy is made.
+                <span className="font-semibold"> You should provide the source link</span> for copyright compliance.
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Image URL <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={embedMode ? imageUrl : ""}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    placeholder="https://example.com/photo.jpg"
+                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <p className="text-[11px] text-neutral-500 mt-1">
+                    Direct URL to the image file (must end with .jpg, .png, .webp, etc. or serve image content-type).
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Source / Attribution Link <span className="text-neutral-400">(optional)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={imageSourceUrl}
+                    onChange={(e) => setImageSourceUrl(e.target.value)}
+                    placeholder="https://example.com/original-page"
+                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <p className="text-[11px] text-neutral-500 mt-1">
+                    Link to the page where the image appears — shown as attribution below the photo.
+                  </p>
+                </div>
+
+                {imageUrl && embedMode && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-neutral-700 mb-2">Preview:</p>
+                    <div className="relative inline-block">
+                      <img
+                        src={imageUrl}
+                        alt="Embed preview"
+                        className="max-w-xs h-auto rounded-lg border border-black/15"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Article Title */}
@@ -1163,7 +1564,12 @@ export default function ArticleEditor() {
             />
           ) : (
             <div
+              ref={editorContainerRef}
               className="relative"
+              style={{
+                // Auto-expand: grow Quill editor when near bottom
+                ...((editorExtraHeight > 0) ? { ["--ql-min-height" as string]: `${320 + editorExtraHeight}px` } : {}),
+              }}
               onDragOver={handleEditorDragOver}
               onDragLeave={handleEditorDragLeave}
               onDrop={handleEditorDrop}
@@ -1177,6 +1583,67 @@ export default function ArticleEditor() {
                 formats={quillFormats}
                 placeholder="Write your article. Drag images here or use the Quick Insert buttons below…"
               />
+
+              {/* Floating inline insert toolbar — appears at cursor */}
+              {inlineToolbar.show && !isDraggingMedia && !isUploadingBodyMedia && !copyrightModal.show && !youtubeModal.show && !imageUrlModal.show && !embedModal.show && (
+                <div
+                  className="absolute left-8 z-20 flex items-center gap-0.5 pointer-events-auto bg-white border border-black/20 rounded-lg shadow-lg px-1 py-1"
+                  style={{ top: inlineToolbar.top }}
+                >
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
+                    }}
+                    onClick={triggerBodyImageDialog}
+                    title="Insert Image"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
+                  >
+                    <span>📷</span> Image
+                  </button>
+                  <span className="w-px h-5 bg-black/10 mx-0.5" />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
+                    }}
+                    onClick={promptForImageUrl}
+                    title="Image from URL"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                  >
+                    <span>🌐</span> URL
+                  </button>
+                  <span className="w-px h-5 bg-black/10 mx-0.5" />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
+                    }}
+                    onClick={promptForEmbedImage}
+                    title="Embed Image"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                  >
+                    <span>🔗</span> Embed
+                  </button>
+                  <span className="w-px h-5 bg-black/10 mx-0.5" />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
+                    }}
+                    onClick={promptForYouTube}
+                    title="YouTube Video"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
+                  >
+                    <span>▶️</span> Video
+                  </button>
+                </div>
+              )}
+
               {(isDraggingMedia || isUploadingBodyMedia) && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-lg border-4 border-dashed border-[#b5121b] bg-[#b5121b]/10 backdrop-blur-[1px]">
                   <div className="text-center px-6 py-4 bg-white/95 rounded-xl shadow-lg pointer-events-none">
@@ -1227,6 +1694,29 @@ export default function ArticleEditor() {
               </button>
               <button
                 type="button"
+                onClick={promptForImageUrl}
+                disabled={isUploadingBodyMedia}
+                className="group flex items-center gap-3 p-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/30 hover:border-blue-400 hover:bg-blue-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xl group-hover:bg-blue-200">🌐</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold text-neutral-900">Image from URL</span>
+                  <span className="block text-[11px] text-neutral-500 mt-0.5">Paste an image URL</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={promptForEmbedImage}
+                className="group flex items-center gap-3 p-3 border-2 border-dashed border-emerald-300 rounded-xl bg-emerald-50/30 hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-xl group-hover:bg-emerald-200">🔗</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold text-neutral-900">Embed Image</span>
+                  <span className="block text-[11px] text-neutral-500 mt-0.5">Hotlink + attribution</span>
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={promptForYouTube}
                 className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left"
               >
@@ -1234,28 +1724,6 @@ export default function ArticleEditor() {
                 <span className="min-w-0">
                   <span className="block text-xs font-bold text-neutral-900">YouTube Video</span>
                   <span className="block text-[11px] text-neutral-500 mt-0.5">Embeds as 16:9 player</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={promptForCodeSandbox}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">🧩</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">CodeSandbox</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Live code embed</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={promptForGist}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">📄</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">GitHub Gist</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Linked code snippet</span>
                 </span>
               </button>
             </div>
@@ -1266,7 +1734,7 @@ export default function ArticleEditor() {
               <h4 className="text-sm font-semibold text-neutral-900">How to add media</h4>
               <ol className="mt-2 space-y-1 text-xs text-neutral-700">
                 <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">1</span><span><span className="font-semibold">Drag &amp; drop</span> images directly onto the editor.</span></li>
-                <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">2</span><span>Use <span className="font-semibold">Quick Insert buttons</span> above for images, YouTube, CodeSandbox, or GitHub Gist.</span></li>
+                <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">2</span><span>Use <span className="font-semibold">Quick Insert buttons</span> above for images, image URLs, or YouTube.</span></li>
                 <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">3</span><span>Use <span className="font-semibold">code-block</span> from the toolbar for syntax-highlighted code.</span></li>
               </ol>
               <div className="mt-3 pt-3 border-t border-neutral-200 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500">
@@ -1690,6 +2158,230 @@ export default function ArticleEditor() {
           )}
         </div>
       </div>
+
+      {/* YouTube modal */}
+      {youtubeModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-base font-bold text-neutral-900 mb-1">
+                ▶️ Insert YouTube Video
+              </h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                Paste a YouTube URL to embed a 16:9 player in the article.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                  YouTube URL <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="url"
+                  value={youtubeModal.url}
+                  onChange={(e) => setYoutubeModal((prev) => ({ ...prev, url: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleYoutubeModalInsert(); }}
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  autoFocus
+                  className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                />
+                <p className="text-[11px] text-neutral-500 mt-1">
+                  Supports youtube.com, youtu.be, and youtube-nocookie.com URLs.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
+              <button
+                type="button"
+                onClick={handleYoutubeModalCancel}
+                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleYoutubeModalInsert}
+                disabled={!youtubeModal.url.trim()}
+                className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Insert Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image from URL modal */}
+      {imageUrlModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-base font-bold text-neutral-900 mb-1">
+                🌐 Insert Image from URL
+              </h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                Paste an image URL — it'll be fetched, optimized to 896×504 WebP, and stored on our servers.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                  Image URL <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="url"
+                  value={imageUrlModal.url}
+                  onChange={(e) => setImageUrlModal((prev) => ({ ...prev, url: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleImageUrlModalSubmit(); }}
+                  placeholder="https://example.com/photo.jpg"
+                  autoFocus
+                  className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[11px] text-neutral-500 mt-1">
+                  The image will be downloaded and hosted on our servers — you'll be asked to confirm copyright before it proceeds.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
+              <button
+                type="button"
+                onClick={handleImageUrlModalCancel}
+                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleImageUrlModalSubmit}
+                disabled={!imageUrlModal.url.trim()}
+                className="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next: Confirm Rights
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Embed image modal (body images) */}
+      {embedModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-base font-bold text-neutral-900 mb-1">
+                🔗 Embed Image via URL
+              </h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                The image stays on the external server — no copy is made.
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Image URL <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={embedModal.imgUrl}
+                    onChange={(e) => setEmbedModal((prev) => ({ ...prev, imgUrl: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleEmbedModalInsert(); }}
+                    placeholder="https://example.com/photo.jpg"
+                    autoFocus
+                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Source / Attribution Link <span className="text-neutral-400">(optional)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={embedModal.sourceUrl}
+                    onChange={(e) => setEmbedModal((prev) => ({ ...prev, sourceUrl: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleEmbedModalInsert(); }}
+                    placeholder="https://example.com/original-page"
+                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <p className="text-[11px] text-neutral-500 mt-1">
+                    Shown as attribution below the image for copyright compliance.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
+              <button
+                type="button"
+                onClick={handleEmbedModalCancel}
+                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleEmbedModalInsert}
+                disabled={!embedModal.imgUrl.trim()}
+                className="px-5 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Insert Image
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copyright confirmation modal */}
+      {copyrightModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl flex-shrink-0">⚠️</span>
+                <div>
+                  <h3 className="text-base font-bold text-neutral-900 mb-2">
+                    Do you have the rights to use this image?
+                  </h3>
+                  <p className="text-sm text-neutral-600 leading-relaxed">
+                    By uploading, you confirm that you own the image or have permission to use it.
+                    Unauthorized use may violate copyright law.
+                  </p>
+                  <p className="mt-3 text-sm text-neutral-600">
+                    If you're not sure, use the{" "}
+                    <span className="font-semibold">🔗 Embed via URL</span>
+                    {" "}tab instead — the image stays on the external server and no copy is made.
+                  </p>
+                  <p className="mt-3 text-xs text-neutral-500">
+                    Please review our{" "}
+                    <a
+                      href="/copyright"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#b5121b] underline hover:text-[#8f0f16] font-medium"
+                    >
+                      Copyright Policy
+                    </a>
+                    {" "}for more information.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
+              <button
+                type="button"
+                onClick={handleCopyrightCancel}
+                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyrightConfirm}
+                className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg"
+              >
+                I have the rights
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

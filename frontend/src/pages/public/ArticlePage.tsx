@@ -34,6 +34,7 @@ interface Article {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl: string | null;
   audioStatus: "NONE" | "PROCESSING" | "READY" | "FAILED";
   audioGeneratedAt?: string | null;
@@ -471,11 +472,26 @@ const ArticleBody = memo(function ArticleBody({ body, fallbackAlt }: { body: str
   }, [sanitized]);
 
   return (
+    <>
+    <style>{`
+      .article-body .img-container { position:relative; display:inline-block; max-width:100%; }
+      .article-body .img-container img { display:block; }
+      .article-body .img-source-link {
+        position:absolute; bottom:8px; right:8px; z-index:10;
+        padding:4px 8px; font-size:10px;
+        color:rgba(255,255,255,0.85);
+        background:rgba(0,0,0,0.5);
+        border-radius:4px; text-decoration:none;
+      }
+      .article-body .img-source-link:before { content:'Source: '; }
+      .article-body .img-source-link:hover { background:rgba(0,0,0,0.7); color:#fff; }
+    `}</style>
     <div
       ref={containerRef}
       className="article-body mt-8 text-neutral-700 text-lg leading-relaxed"
       dangerouslySetInnerHTML={{ __html: sanitized }}
     />
+    </>
   );
 });
 
@@ -991,7 +1007,7 @@ export default function ArticlePage() {
 
           {article.imageUrl && (
             <div
-              className={`relative ${showAudioReader ? "mb-4" : "mb-8"} rounded-t-lg overflow-hidden max-w-4xl`}
+              className={`relative ${showAudioReader ? "mb-4" : "mb-8"} rounded-t-lg overflow-hidden max-w-4xl group`}
               style={{ aspectRatio: '16/9' }}
             >
               {hasReadyAudio(article) && <ArticleListenBadge />}
@@ -1001,6 +1017,16 @@ export default function ArticlePage() {
                 className="w-full h-full object-cover"
                 loading="lazy"
               />
+              {article.imageSourceUrl && (
+                <a
+                  href={article.imageSourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute bottom-3 right-3 px-2 py-1 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors"
+                >
+                  Source: {article.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
+                </a>
+              )}
             </div>
           )}
 

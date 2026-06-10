@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { authenticate } from "../middleware/auth";
 import { uploadMiddleware, uploadMiddlewareAdmin } from "../middleware/upload";
-import { uploadArticleImage } from "../controllers/uploadController";
+import { uploadArticleImage, uploadArticleImageFromUrl } from "../controllers/uploadController";
 
 const router = Router();
 
@@ -19,5 +19,10 @@ const selectUploadMiddleware = (req: Request, res: Response, next: NextFunction)
 
 // POST /api/upload - Upload article image
 router.post("/article-image", authenticate, selectUploadMiddleware, uploadArticleImage);
+
+// POST /api/upload/from-url - Upload article image from external URL
+// Fetches the image server-side, processes, and stores on R2.
+// Enables full programmatic automation (AI tools, n8n, API clients).
+router.post("/from-url", authenticate, uploadArticleImageFromUrl);
 
 export default router;

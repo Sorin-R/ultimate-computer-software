@@ -12,6 +12,8 @@ const ALLOWED_TAGS = [
   "div",
   "p",
   "span",
+  "figure",
+  "figcaption",
   "h1",
   "h2",
   "h3",

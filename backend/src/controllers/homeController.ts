@@ -121,6 +121,7 @@ const ARTICLE_SELECT = {
   excerpt: true,
   authorName: true,
   imageUrl: true,
+        imageSourceUrl: true,
   audioUrl: true,
   audioStatus: true,
   publishedAt: true,
@@ -136,6 +137,7 @@ type RawArticle = {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl: string | null;
   audioStatus: "NONE" | "PROCESSING" | "READY" | "FAILED";
   publishedAt: Date | null;
@@ -162,6 +164,7 @@ async function decorateArticle(article: RawArticle) {
     excerpt: article.excerpt,
     authorName: article.authorName,
     imageUrl: article.imageUrl,
+    imageSourceUrl: article.imageSourceUrl,
     audioUrl: article.audioUrl,
     audioStatus: article.audioStatus,
     publishedAt: article.publishedAt ?? article.createdAt,
@@ -314,6 +317,7 @@ interface FeedArticle {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl: string | null;
   audioStatus: "NONE" | "PROCESSING" | "READY" | "FAILED";
   publishedAt: Date | null;
@@ -425,6 +429,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
       excerpt: a.excerpt,
       authorName: a.authorName,
       imageUrl: a.imageUrl,
+      imageSourceUrl: a.imageSourceUrl,
       audioUrl: a.audioUrl,
       audioStatus: a.audioStatus,
       publishedAt: a.publishedAt ?? a.createdAt,
@@ -560,6 +565,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
       excerpt: a.excerpt,
       authorName: a.authorName,
       imageUrl: a.imageUrl,
+      imageSourceUrl: a.imageSourceUrl,
       audioUrl: a.audioUrl,
       audioStatus: a.audioStatus,
       publishedAt: a.publishedAt ?? a.createdAt,
@@ -663,6 +669,7 @@ export async function getFromYourFollows(req: Request, res: Response): Promise<v
       excerpt: true,
       authorName: true,
       imageUrl: true,
+        imageSourceUrl: true,
       audioUrl: true,
       audioStatus: true,
       publishedAt: true,

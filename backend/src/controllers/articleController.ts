@@ -223,6 +223,7 @@ export async function getPublishedArticles(req: Request, res: Response): Promise
         excerpt: true,
         authorName: true,
         imageUrl: true,
+        imageSourceUrl: true,
         audioUrl: true,
         audioStatus: true,
         publishedAt: true,
@@ -295,6 +296,7 @@ export async function getArticleBySlug(req: Request, res: Response): Promise<voi
       excerpt: true,
       authorName: true,
       imageUrl: true,
+        imageSourceUrl: true,
       audioUrl: true,
       audioStatus: true,
       publishedAt: true,
@@ -372,7 +374,7 @@ export async function getArticleBySlug(req: Request, res: Response): Promise<voi
 
 export async function createArticle(req: Request, res: Response): Promise<void> {
   const { title, body, categoryId, authorName, originalSourceUrl, mainKeyword, tagIds, status, imageUrl,
-    articleType, amaExpiresAt, isPinnedToHome } = req.body;
+    imageSourceUrl, articleType, amaExpiresAt, isPinnedToHome } = req.body;
   const userId = req.user!.userId;
   const isAdmin = req.user?.role === "ADMIN";
 
@@ -451,6 +453,7 @@ export async function createArticle(req: Request, res: Response): Promise<void> 
       authorName: authorName || user?.name || "Anonymous",
       originalSourceUrl: originalSourceUrl || null,
       imageUrl: imageUrl || null,
+      imageSourceUrl: imageSourceUrl || null,
       status: resolvedStatus,
       scheduledAt: resolvedScheduledAt,
       articleType: resolvedType,
@@ -499,7 +502,7 @@ export async function updateArticle(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const { title, body, categoryId, authorName, originalSourceUrl, mainKeyword, tagIds, status, imageUrl } =
+  const { title, body, categoryId, authorName, originalSourceUrl, mainKeyword, tagIds, status, imageUrl, imageSourceUrl } =
     req.body;
 
   if (
@@ -530,6 +533,7 @@ export async function updateArticle(req: Request, res: Response): Promise<void> 
   if (authorName !== undefined) data.authorName = authorName;
   if (originalSourceUrl !== undefined) data.originalSourceUrl = originalSourceUrl || null;
   if (imageUrl !== undefined) data.imageUrl = imageUrl || null;
+  if (imageSourceUrl !== undefined) data.imageSourceUrl = imageSourceUrl || null;
   if (mainKeyword && mainKeyword !== existing.mainKeyword) {
     data.slug = await uniqueArticleSlug(mainKeyword);
     data.mainKeyword = mainKeyword;
@@ -645,6 +649,7 @@ export async function getUserArticles(req: Request, res: Response): Promise<void
       excerpt: true,
       authorName: true,
       imageUrl: true,
+        imageSourceUrl: true,
       createdAt: true,
       updatedAt: true,
       publishedAt: true,
@@ -1033,7 +1038,7 @@ export async function getSeriesById(req: Request, res: Response): Promise<void> 
           article: {
             select: {
               id: true, title: true, slug: true, excerpt: true,
-              status: true, publishedAt: true, imageUrl: true,
+              status: true, publishedAt: true, imageUrl: true, imageSourceUrl: true,
             },
           },
         },
@@ -1085,6 +1090,7 @@ export async function getMyHistory(req: Request, res: Response): Promise<void> {
       excerpt: true,
       authorName: true,
       imageUrl: true,
+        imageSourceUrl: true,
       audioUrl: true,
       audioStatus: true,
       publishedAt: true,
@@ -1179,6 +1185,7 @@ export async function getActiveAmas(req: Request, res: Response): Promise<void> 
       excerpt: true,
       authorName: true,
       imageUrl: true,
+      imageSourceUrl: true,
       publishedAt: true,
       amaExpiresAt: true,
       isPinnedToHome: true,

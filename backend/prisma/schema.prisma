@@ -268,6 +268,7 @@ model Article {
   authorName        String
   originalSourceUrl String?
   imageUrl          String?
+  imageSourceUrl    String? // attribution/source URL for embedded images (copyright compliance)
   audioUrl          String?
   audioStatus       ArticleAudioStatus @default(NONE)
   audioGeneratedAt  DateTime?

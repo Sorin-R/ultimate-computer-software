@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import api from "../../api/client";
 import SEOHead from "../../components/SEOHead";
@@ -78,6 +78,8 @@ export default function AdminArticles() {
   const statusFilter = searchParams.get("status") || "";
   const audioFilter = searchParams.get("audioStatus") || "";
   const titleQuery = searchParams.get("q") || "";
+  const authorFilter = searchParams.get("author") || "";
+  const categoryFilter = searchParams.get("category") || "";
   const sortFilter = (searchParams.get("sort") || "updated_desc") as ArticleSort;
   const dateFieldFilter = (searchParams.get("dateField") || "createdAt") as ArticleDateField;
   const dateFromFilter = searchParams.get("dateFrom") || "";
@@ -86,6 +88,8 @@ export default function AdminArticles() {
     statusFilter ||
       audioFilter ||
       titleQuery ||
+      authorFilter ||
+      categoryFilter ||
       dateFromFilter ||
       dateToFilter ||
       sortFilter !== "updated_desc" ||
@@ -94,6 +98,8 @@ export default function AdminArticles() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState(titleQuery);
+  const [authorText, setAuthorText] = useState(authorFilter);
+  const [categoryText, setCategoryText] = useState(categoryFilter);
   const [page, setPage] = useState(1);
   const [totalArticles, setTotalArticles] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -101,6 +107,7 @@ export default function AdminArticles() {
   const [rejectInstructions, setRejectInstructions] = useState("");
   const [rejectSending, setRejectSending] = useState(false);
   const [audioGeneratingId, setAudioGeneratingId] = useState<string | null>(null);
+  const pollRef = useRef<{ aborted: boolean } | null>(null);
   const [idCopyTarget, setIdCopyTarget] = useState<string | null>(null);
   const [idCopied, setIdCopied] = useState(false);
 
@@ -120,6 +127,8 @@ export default function AdminArticles() {
     if (statusFilter) params.status = statusFilter;
     if (audioFilter) params.audioStatus = audioFilter;
     if (titleQuery) params.q = titleQuery;
+    if (authorFilter) params.author = authorFilter;
+    if (categoryFilter) params.category = categoryFilter;
     if (sortFilter) params.sort = sortFilter;
     if (dateFieldFilter) params.dateField = dateFieldFilter;
     if (dateFromFilter) params.dateFrom = dateFromFilter;
@@ -153,6 +162,36 @@ export default function AdminArticles() {
   }, [titleQuery]);
 
   useEffect(() => {
+    setAuthorText(authorFilter);
+  }, [authorFilter]);
+
+  useEffect(() => {
+    setCategoryText(categoryFilter);
+  }, [categoryFilter]);
+
+  useEffect(() => {
+    const normalized = authorText.trim();
+    if (normalized === authorFilter) return;
+
+    const timer = window.setTimeout(() => {
+      updateFilter("author", normalized);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [authorText, authorFilter]);
+
+  useEffect(() => {
+    const normalized = categoryText.trim();
+    if (normalized === categoryFilter) return;
+
+    const timer = window.setTimeout(() => {
+      updateFilter("category", normalized);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [categoryText, categoryFilter]);
+
+  useEffect(() => {
     const normalized = searchText.trim();
     if (normalized === titleQuery) return;
 
@@ -162,6 +201,13 @@ export default function AdminArticles() {
 
     return () => window.clearTimeout(timer);
   }, [searchText, titleQuery]);
+
+  // Cleanup: abort any running poll on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) pollRef.current.aborted = true;
+    };
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -180,6 +226,8 @@ export default function AdminArticles() {
     statusFilter,
     audioFilter,
     titleQuery,
+    authorFilter,
+    categoryFilter,
     sortFilter,
     dateFieldFilter,
     dateFromFilter,
@@ -229,6 +277,7 @@ export default function AdminArticles() {
 
   const handleGenerateAudio = async (article: Article) => {
     if (article.status !== "PUBLISHED") return;
+    if (audioGeneratingId === article.id) return; // Prevent double-click on same article
 
     try {
       setAudioGeneratingId(article.id);
@@ -245,32 +294,68 @@ export default function AdminArticles() {
             : item
         )
       );
+      // poll clears audioGeneratingId when done
       void pollArticleAudioStatus(article.id);
     } catch (err: any) {
       alert(err.response?.data?.error || "Failed to start audio generation");
-    } finally {
       setAudioGeneratingId(null);
     }
   };
 
   const pollArticleAudioStatus = async (articleId: string) => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
+    // Cancel any running poll
+    if (pollRef.current) pollRef.current.aborted = true;
+    const ctx = { aborted: false };
+    pollRef.current = ctx;
+
+    let failures = 0;
+    for (let attempt = 0; attempt < 120; attempt++) {
+      if (ctx.aborted) return;
+
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
+      if (ctx.aborted) return;
 
       try {
-        const { data } = await api.get("/admin/articles", { params: buildArticleParams() });
-        const nextArticles = Array.isArray(data.articles) ? data.articles : [];
-        setArticles(nextArticles);
-        setTotalArticles(data.total || 0);
-        setTotalPages(data.totalPages || 1);
+        const { data } = await api.get(`/admin/articles/${articleId}`);
+        const updated = data?.article;
+        if (!updated) {
+          // Article deleted or not found — stop polling
+          setAudioGeneratingId(null);
+          return;
+        }
 
-        const updated = nextArticles.find((item: Article) => item.id === articleId);
-        if (updated && updated.audioStatus !== "PROCESSING") return;
-      } catch (err) {
-        console.error("audio status poll failed", err);
-        return;
+        // Targeted update: only touch this one article
+        setArticles((prev) =>
+          prev.map((item) =>
+            item.id === articleId
+              ? {
+                  ...item,
+                  audioStatus: updated.audioStatus || item.audioStatus,
+                  audioUrl: updated.audioUrl ?? item.audioUrl,
+                }
+              : item
+          )
+        );
+
+        if (updated.audioStatus !== "PROCESSING") {
+          setAudioGeneratingId(null);
+          return;
+        }
+
+        failures = 0; // reset on success
+      } catch {
+        console.error("audio status poll failed");
+        failures++;
+        // Give up after 3 consecutive failures (~9s of downtime)
+        if (failures >= 3) {
+          setAudioGeneratingId(null);
+          return;
+        }
       }
     }
+
+    // Timed out after ~6 min — let the button recover
+    setAudioGeneratingId(null);
   };
 
   const openRejectModal = (article: Article) => {
@@ -332,12 +417,12 @@ export default function AdminArticles() {
       <div className="bg-white border border-black/15 p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">
-            Search Title or ID
+            Search
             <input
               type="search"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Keyword from title or article ID"
+              placeholder="Title, ID, author, or category"
               className="px-3 py-2 border border-black/25 bg-white text-sm normal-case tracking-normal text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
             />
           </label>
@@ -381,6 +466,28 @@ export default function AdminArticles() {
                 <option key={status} value={status}>{status}</option>
               ))}
             </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">
+            Author
+            <input
+              type="search"
+              value={authorText}
+              onChange={(e) => setAuthorText(e.target.value)}
+              placeholder="Name or email"
+              className="px-3 py-2 border border-black/25 bg-white text-sm normal-case tracking-normal text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">
+            Category
+            <input
+              type="search"
+              value={categoryText}
+              onChange={(e) => setCategoryText(e.target.value)}
+              placeholder="Name, slug, or ID"
+              className="px-3 py-2 border border-black/25 bg-white text-sm normal-case tracking-normal text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+            />
           </label>
 
           <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">

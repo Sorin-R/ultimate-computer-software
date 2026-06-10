@@ -26,6 +26,7 @@ interface FeedArticle {
   excerpt: string | null;
   authorName: string;
   imageUrl: string | null;
+  imageSourceUrl?: string | null;
   audioUrl?: string | null;
   audioStatus?: ArticleAudioStatus | string | null;
   publishedAt: string | null;
@@ -283,6 +284,7 @@ export default function CategoryPage() {
                   authorName={article.authorName}
                   publishedAt={article.publishedAt}
                   imageUrl={article.imageUrl}
+                  imageSourceUrl={article.imageSourceUrl}
                   audioUrl={article.audioUrl}
                   audioStatus={article.audioStatus}
                   category={{ name: article.category.name, slug: article.category.slug }}
@@ -318,6 +320,7 @@ export default function CategoryPage() {
                     authorName={article.authorName}
                     publishedAt={article.publishedAt}
                     imageUrl={article.imageUrl}
+                  imageSourceUrl={article.imageSourceUrl}
                     audioUrl={article.audioUrl}
                     audioStatus={article.audioStatus}
                     category={{ name: article.category.name, slug: article.category.slug }}

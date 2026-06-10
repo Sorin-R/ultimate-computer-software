@@ -26,6 +26,8 @@ type CliOptions = {
   status: ArticleStatus;
   authorEmail: string | null;
   categorySlug: string;
+  imageSourceUrl: string | null;   // attribution/source link for featured image
+  featuredImageUrl: string | null; // external embed URL — skips R2 upload for featured image
 };
 
 const DEFAULT_AUTHOR_EMAIL = "admin@ultimatecomputersoftware.com";
@@ -62,7 +64,10 @@ function readOption(args: string[], name: string): string | null {
 }
 
 function readPositionalPackage(args: string[]): string | null {
-  const flagsWithValues = new Set(["--package", "--status", "--author-email", "--category-slug"]);
+  const flagsWithValues = new Set([
+    "--package", "--status", "--author-email", "--category-slug",
+    "--image-source-url", "--featured-image-url",
+  ]);
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -122,6 +127,8 @@ async function parseCliOptions(backendRoot: string): Promise<CliOptions> {
     status: statusRaw as ArticleStatus,
     authorEmail: readOption(args, "--author-email") || DEFAULT_AUTHOR_EMAIL,
     categorySlug: readOption(args, "--category-slug") || DEFAULT_CATEGORY_SLUG,
+    imageSourceUrl: readOption(args, "--image-source-url") || null,
+    featuredImageUrl: readOption(args, "--featured-image-url") || null,
   };
 }
 
@@ -186,16 +193,22 @@ async function parsePackage(packageDir: string): Promise<ParsedPackage> {
   const videoPath = path.join(packageDir, "video.md");
   const imageDir = path.join(packageDir, "img");
 
-  const [articleMarkdown, keywordsMarkdown, videoMarkdown, imageEntries] = await Promise.all([
+  // img/ is optional — embed-only articles won't have it
+  const imageDirExists = await pathExists(imageDir);
+  let imageEntries: { isFile(): boolean; name: string }[] = [];
+  if (imageDirExists) {
+    imageEntries = await fs.readdir(imageDir, { withFileTypes: true }) as any;
+  }
+
+  const [articleMarkdown, keywordsMarkdown, videoMarkdown] = await Promise.all([
     fs.readFile(articlePath, "utf8"),
     fs.readFile(keywordsPath, "utf8"),
     fs.readFile(videoPath, "utf8"),
-    fs.readdir(imageDir, { withFileTypes: true }),
   ]);
 
   const imagePaths = imageEntries
-    .filter((entry) => entry.isFile() && /\.(jpe?g|png|webp|gif)$/i.test(entry.name))
-    .map((entry) => path.join(imageDir, entry.name))
+    .filter((entry: any) => entry.isFile() && /\.(jpe?g|png|webp|gif)$/i.test(entry.name))
+    .map((entry: any) => path.join(imageDir, entry.name))
     .sort();
 
   const { mainKeyword, secondaryKeywords, sourceUrls } = extractKeywords(keywordsMarkdown);
@@ -213,12 +226,54 @@ async function parsePackage(packageDir: string): Promise<ParsedPackage> {
   };
 }
 
+function pipeTableToHtml(markdown: string): string {
+  const lines = markdown.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return `<p>${escapeHtml(markdown.trim())}</p>`;
+
+  const parseRow = (line: string) =>
+    line
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim());
+
+  // First line is header, second is separator, rest are data
+  const headerCells = parseRow(lines[0]);
+  const bodyLines = lines.slice(2);
+
+  const thead = `<thead><tr>${headerCells
+    .map((cell) => `<th>${escapeHtml(cell)}</th>`)
+    .join("")}</tr></thead>`;
+
+  const tbody = `<tbody>${bodyLines
+    .map(
+      (line) =>
+        `<tr>${parseRow(line)
+          .map((cell) => `<td>${escapeHtml(cell)}</td>`)
+          .join("")}</tr>`
+    )
+    .join("")}</tbody>`;
+
+  return `<table>${thead}${tbody}</table>`;
+}
+
 function markdownChunkToHtml(chunk: string): string {
   const trimmed = chunk.trim();
 
-  // Pass HTML tables through unescaped so they render as real tables
-  if (/^<table\b[\s\S]*?<\/table>\s*$/i.test(trimmed)) {
+  // Pass chunks that contain or are HTML tables through unescaped
+  if (/<table\b[\s\S]*?<\/table>/i.test(trimmed)) {
     return trimmed;
+  }
+  if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^<figure\b[\s\S]*?<\/figure>\s*$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Convert markdown pipe-style tables to HTML tables
+  if (/\|.*\|/.test(trimmed) && /\|\s*[-:]+\s*\|/.test(trimmed)) {
+    return pipeTableToHtml(trimmed);
   }
 
   if (/^###\s+/m.test(trimmed)) {
@@ -246,8 +301,35 @@ function markdownChunkToHtml(chunk: string): string {
 }
 
 function markdownToBlocks(markdown: string): string[] {
-  return getMarkdownBodyWithoutTitle(markdown)
-    .split(/\n\s*\n/g)
+  const body = getMarkdownBodyWithoutTitle(markdown);
+
+  // Protect HTML tables AND markdown pipe tables from chunk splitting
+  const protected_: string[] = [];
+
+  let guarded = body.replace(/<table\b[\s\S]*?<\/table>/gi, (match) => {
+    protected_.push(match);
+    return `__BLOCK_${protected_.length - 1}__`;
+  });
+
+  // Protect pipe tables: consecutive lines containing | and separator line
+  guarded = guarded.replace(
+    /(?:^[|].*[|]\s*$\n?)+/gm,
+    (match) => {
+      // Only protect if it contains a separator row (---+---)
+      if (/\|\s*[-:]+\s*\|/.test(match)) {
+        protected_.push(match.trim());
+        return `__BLOCK_${protected_.length - 1}__\n`;
+      }
+      return match;
+    }
+  );
+
+  const chunks = guarded.split(/\n\s*\n/g);
+
+  return chunks
+    .map((chunk) => {
+      return chunk.replace(/__BLOCK_(\d+)__/g, (_, i) => protected_[parseInt(i)] || "");
+    })
     .map(markdownChunkToHtml)
     .filter(Boolean);
 }
@@ -277,8 +359,13 @@ function toYouTubeEmbedUrl(rawUrl: string): string | null {
   }
 }
 
-function imageBlock(imageUrl: string, alt: string): string {
-  return `<p><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(alt)}" loading="lazy" /></p>`;
+function imageBlock(imageUrl: string, alt: string, sourceUrl?: string | null): string {
+  const img = `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
+  if (sourceUrl) {
+    const domain = (() => { try { return new URL(sourceUrl).hostname; } catch { return "source"; } })();
+    return `<div class="article-media img-container">${img}<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="img-source-link">${escapeHtml(domain)}</a></div>`;
+  }
+  return `<p>${img}</p>`;
 }
 
 function videoBlock(videoUrl: string): string {
@@ -295,7 +382,7 @@ function videoBlock(videoUrl: string): string {
   ].join("");
 }
 
-function composeArticleHtml(parsed: ParsedPackage, imageUrls: string[]): string {
+function composeArticleHtml(parsed: ParsedPackage, imageUrls: string[], imageSourceUrl?: string | null): string {
   const blocks = markdownToBlocks(parsed.articleMarkdown);
   const inlineImages = imageUrls.slice(1);
   const mediaByBlockIndex = new Map<number, string[]>();
@@ -307,7 +394,7 @@ function composeArticleHtml(parsed: ParsedPackage, imageUrls: string[]): string 
 
   inlineImages.forEach((url, index) => {
     const afterBlock = [2, 7, 12][index] ?? blocks.length;
-    queueMedia(afterBlock, imageBlock(url, `${parsed.title} image ${index + 2}`));
+    queueMedia(afterBlock, imageBlock(url, `${parsed.title} image ${index + 2}`, imageSourceUrl));
   });
 
   if (parsed.videoUrl) {
@@ -435,10 +522,13 @@ async function saveArticleVersion(articleId: string, title: string, body: string
 async function importPackage(options: CliOptions, backendRoot: string): Promise<void> {
   const parsed = await parsePackage(options.packageDir);
   const imageUrls = await prepareImages(parsed, backendRoot, options.dryRun);
-  const body = composeArticleHtml(parsed, imageUrls);
+  const body = composeArticleHtml(parsed, imageUrls, options.imageSourceUrl);
   const excerpt = generateExcerpt(body);
   const slug = createSlug(parsed.title);
   const keywordNames = [parsed.mainKeyword, ...parsed.secondaryKeywords];
+
+  // Featured image: use --featured-image-url if set (embed), otherwise R2 upload
+  const featuredUrl = options.featuredImageUrl || imageUrls[0] || null;
 
   if (options.dryRun) {
     console.log("Dry run OK");
@@ -447,7 +537,9 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
     console.log(`Slug: ${slug}`);
     console.log(`Main keyword: ${parsed.mainKeyword}`);
     console.log(`Tags: ${keywordNames.join(", ")}`);
-    console.log(`Images: ${imageUrls.length}`);
+    console.log(`Images (R2): ${imageUrls.length}`);
+    console.log(`Featured image: ${featuredUrl || "none"}`);
+    console.log(`Image source: ${options.imageSourceUrl || "none"}`);
     console.log(`Video: ${parsed.videoUrl || "none"}`);
     console.log(`Status: ${options.status}`);
     console.log(`Body characters: ${body.length}`);
@@ -471,7 +563,8 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
     mainKeyword: parsed.mainKeyword,
     authorName: author.name || "Admin",
     originalSourceUrl: parsed.sourceUrls[0] || parsed.videoUrl,
-    imageUrl: imageUrls[0] || null,
+    imageUrl: featuredUrl,
+    imageSourceUrl: options.imageSourceUrl || null,
     status: options.status,
     publishedAt,
     categoryId: category.id,
@@ -504,7 +597,8 @@ async function importPackage(options: CliOptions, backendRoot: string): Promise<
   console.log(`Category: ${category.name}`);
   console.log(`Tags: ${keywordNames.join(", ")}`);
   console.log(`Images uploaded: ${imageUrls.length}`);
-  console.log(`Featured image: ${imageUrls[0] || "none"}`);
+  console.log(`Featured image: ${featuredUrl || "none"}`);
+  console.log(`Image source: ${options.imageSourceUrl || "none"}`);
 }
 
 async function main() {
