@@ -708,7 +708,7 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
   --tw-font-weight: var(--font-weight-medium);
   font-weight: var(--font-weight-medium);
   color: rgb(181, 18, 27);
-  text-dergb(255, 255, 255)nderline;
+  color: rgb(255, 255, 255); text-decoration: underline;
 }
 
 .article-body .article-media > a {
