@@ -1073,7 +1073,7 @@ export default function ArticleEditor() {
     } finally {
       setSaving(false);
     }
-  }, [body, title, isAdmin, mainKeyword, categoryId, authorName, originalSourceUrl, selectedTags, scheduledAt, selectedSeriesId, imageUrl, isEdit, id, navigate, articleType, amaExpiresAt, isAdminArticleEdit]);
+  }, [body, title, isAdmin, mainKeyword, categoryId, authorName, originalSourceUrl, selectedTags, scheduledAt, selectedSeriesId, imageUrl, imageSourceUrl, isEdit, id, navigate, articleType, amaExpiresAt, isAdminArticleEdit]);
 
   if (loading) {
     return (
