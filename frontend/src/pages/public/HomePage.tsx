@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useLocation, Link } from "react-router-dom";
 import api from "../../api/client";
 import SEOHead from "../../components/SEOHead";
@@ -202,6 +202,75 @@ function formatTimeZoneShortLabel(zone: string): string {
   return single.slice(0, 3).toUpperCase();
 }
 
+// The desk clock ticks every second. It is isolated in its own memoized
+// component so the 1s interval re-renders only this small element instead of
+// the entire HomePage (article grids, sidebar, ads) on every tick.
+const DeskClock = memo(function DeskClock() {
+  const timeZones = useMemo(() => getAllTimeZones(), []);
+  const [timeZone, setTimeZone] = useState<string>(() => {
+    const saved = localStorage.getItem("preferredTimeZone");
+    return saved || getBrowserTimeZone();
+  });
+  const [clockDate, setClockDate] = useState(() => formatClock(new Date(), timeZone).date);
+  const [clockTime, setClockTime] = useState(() => formatClock(new Date(), timeZone).time);
+
+  useEffect(() => {
+    if (!timeZones.includes(timeZone)) {
+      const fallback = getBrowserTimeZone();
+      setTimeZone(timeZones.includes(fallback) ? fallback : "UTC");
+    }
+  }, [timeZone, timeZones]);
+
+  useEffect(() => {
+    const clock = formatClock(new Date(), timeZone);
+    setClockDate(clock.date);
+    setClockTime(clock.time);
+    const timer = setInterval(() => {
+      const updated = formatClock(new Date(), timeZone);
+      setClockDate(updated.date);
+      setClockTime(updated.time);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeZone]);
+
+  useEffect(() => {
+    localStorage.setItem("preferredTimeZone", timeZone);
+  }, [timeZone]);
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Mobile: date above time */}
+      <div className="flex flex-col lg:hidden">
+        <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
+          {clockDate}
+        </span>
+        <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap tabular-nums">
+          {clockTime}
+        </span>
+      </div>
+      {/* Desktop: single line */}
+      <span className="hidden lg:inline text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
+        {clockDate} &nbsp;{clockTime}
+      </span>
+      <select
+        value={timeZone}
+        onChange={(e) => setTimeZone(e.target.value)}
+        className="text-[11px] border border-black/25 bg-white px-2 py-1 text-neutral-700 w-auto"
+        style={{ width: "fit-content" }}
+        aria-label="Select time zone"
+        title="Select time zone"
+      >
+        {timeZones.map((zone) => (
+          <option key={zone} value={zone} title={zone}>
+            {formatTimeZoneShortLabel(zone)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+});
+
 export default function HomePage() {
   const [searchParams] = useSearchParams();
   const search = searchParams.get("search") || "";
@@ -285,38 +354,6 @@ export default function HomePage() {
   const [feedPage, setFeedPage] = useState(1);
   const [homeTopDevice, setHomeTopDevice] = useState<"mobile" | "desktop">("desktop");
   const [activeDevicePlacements, setActiveDevicePlacements] = useState<Set<string>>(new Set());
-  const timeZones = useMemo(() => getAllTimeZones(), []);
-  const [timeZone, setTimeZone] = useState<string>(() => {
-    const saved = localStorage.getItem("preferredTimeZone");
-    return saved || getBrowserTimeZone();
-  });
-  const [clockDate, setClockDate] = useState(() => formatClock(new Date(), timeZone).date);
-  const [clockTime, setClockTime] = useState(() => formatClock(new Date(), timeZone).time);
-
-  useEffect(() => {
-    if (!timeZones.includes(timeZone)) {
-      const fallback = getBrowserTimeZone();
-      setTimeZone(timeZones.includes(fallback) ? fallback : "UTC");
-    }
-  }, [timeZone, timeZones]);
-
-  useEffect(() => {
-    const clock = formatClock(new Date(), timeZone);
-    setClockDate(clock.date);
-    setClockTime(clock.time);
-    const timer = setInterval(() => {
-      const updated = formatClock(new Date(), timeZone);
-      setClockDate(updated.date);
-      setClockTime(updated.time);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeZone]);
-
-  useEffect(() => {
-    localStorage.setItem("preferredTimeZone", timeZone);
-  }, [timeZone]);
-
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -622,35 +659,7 @@ export default function HomePage() {
             <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.18em] text-[#262626]">
               Worldwide Technology Journal Desk
             </p>
-            <div className="flex items-center gap-2">
-              {/* Mobile: date above time */}
-              <div className="flex flex-col lg:hidden">
-                <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
-                  {clockDate}
-                </span>
-                <span className="text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap tabular-nums">
-                  {clockTime}
-                </span>
-              </div>
-              {/* Desktop: single line */}
-              <span className="hidden lg:inline text-[11px] sm:text-xs font-semibold tracking-[0.04em] text-neutral-700 whitespace-nowrap">
-                {clockDate} &nbsp;{clockTime}
-              </span>
-              <select
-                value={timeZone}
-                onChange={(e) => setTimeZone(e.target.value)}
-                className="text-[11px] border border-black/25 bg-white px-2 py-1 text-neutral-700 w-auto"
-                style={{ width: "fit-content" }}
-                aria-label="Select time zone"
-                title="Select time zone"
-              >
-                {timeZones.map((zone) => (
-                  <option key={zone} value={zone} title={zone}>
-                    {formatTimeZoneShortLabel(zone)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <DeskClock />
           </div>
         </section>
 
