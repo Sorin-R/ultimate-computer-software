@@ -44,6 +44,29 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
+      - name: Check VPS reachability (fail fast with a clear message)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ github.event.inputs.port || secrets.VPS_PORT || '22' }}
+        run: |
+          echo "Resolving $VPS_HOST ..."
+          # A Cloudflare-proxied domain resolves to 104.x / 172.67.x / 2606:4700::
+          # addresses, which do NOT forward SSH — set VPS_HOST to the raw VPS IP.
+          getent hosts "$VPS_HOST" || nslookup "$VPS_HOST" || true
+
+          echo "Checking TCP reachability to $VPS_HOST:$VPS_PORT ..."
+          if nc -vz -w 10 "$VPS_HOST" "$VPS_PORT"; then
+            echo "TCP $VPS_PORT is reachable."
+          else
+            echo "::error::Cannot open TCP $VPS_PORT on $VPS_HOST. Check that VPS_HOST is the raw VPS IP (NOT a Cloudflare-proxied domain) and that the provider firewall allows port $VPS_PORT from GitHub runners."
+            exit 1
+          fi
+
+          echo "Verbose SSH handshake test (BatchMode, no password prompt) ..."
+          # Diagnostic only: the deploy step below is authoritative. This makes it
+          # obvious whether a failure is a network block vs. an auth/key problem.
+          ssh -vvv -o BatchMode=yes -o ConnectTimeout=15 vps 'echo "SSH OK on $(hostname)"' || true
+
       - name: Deploy on VPS (retry on transient SSH failures)
         uses: nick-fields/retry@v3
         with:

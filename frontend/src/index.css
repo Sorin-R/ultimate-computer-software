@@ -794,17 +794,59 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
   max-height: 600px;
 }
 
+/*
+ * Tables are wrapped in .article-table-wrap by sanitizeArticleBody() so they
+ * can scroll horizontally on narrow screens instead of overflowing the article
+ * card. The scroll lives on the wrapper; the table keeps a sensible minimum
+ * width so columns stay readable rather than squishing on mobile.
+ */
+.article-body .article-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5rem 0;
+}
+
+/*
+ * Size the table to its content (not the container) so columns stay as wide as
+ * they need to be and the wrapper scrolls horizontally. `min-width: 100%` keeps
+ * a small table filling the card. Forcing `width: 100%` here is what made wide
+ * comparison tables squish every column to a sliver on mobile and break words
+ * one character at a time.
+ */
 .article-body table {
-  @apply w-full border-collapse border border-gray-300 my-6;
+  @apply border-collapse border border-gray-300;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
 }
 
 .article-body th,
 .article-body td {
-  @apply border border-gray-300 px-4 py-3 text-left;
+  @apply border border-gray-300 px-4 py-3 text-left align-top;
+  /*
+   * Keep every column readable: at least ~8rem so headers like "GEEKOM
+   * GeekBook M16" wrap on word boundaries, capped at ~22rem so a long cell
+   * wraps instead of stretching the column. Long unbreakable tokens (URLs)
+   * break only as a last resort.
+   */
+  min-width: 8rem;
+  max-width: 22rem;
+  overflow-wrap: break-word;
 }
 
 .article-body th {
   @apply bg-gray-100 font-semibold;
+}
+
+/* Tighter columns/padding on small screens so more of the table is visible. */
+@media (max-width: 640px) {
+  .article-body th,
+  .article-body td {
+    @apply px-3 py-2;
+    min-width: 7rem;
+  }
 }
 
 /*
@@ -826,6 +868,7 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
  * to match the design spec.
  */
 .article-body .article-media {
+  position: relative;
   aspect-ratio: 16 / 9;
   width: 100%;
   max-width: 896px;
