@@ -762,17 +762,9 @@ export default function HomePage() {
                           loading="eager"
                         />
                       </Link>
-                      {leadArticle.imageSourceUrl && (
-                        <a href={leadArticle.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
-                          Source: {leadArticle.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
-                        </a>
-                      )}
+
                       </div>
-                      {leadArticle.imageSourceUrl && (
-                        <a href={leadArticle.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
-                          Source: {leadArticle.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
-                        </a>
-                      )}
+
                       </>
                     )}
                     <Link
@@ -1256,11 +1248,7 @@ export default function HomePage() {
                                 loading="lazy"
                               />
                             </Link>
-                            {article.imageSourceUrl && (
-                              <a href={article.imageSourceUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 z-10 px-2 py-0.5 text-[10px] text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded backdrop-blur-sm transition-colors">
-                                Source: {article.imageSourceUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")}
-                              </a>
-                            )}
+
                             </div>
                           )}
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs uppercase tracking-[0.08em] mb-3">
