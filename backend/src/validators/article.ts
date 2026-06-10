@@ -15,7 +15,7 @@ export const createArticleSchema = z.object({
   tagIds: z.array(z.string()).optional(),
   status: z.enum(["DRAFT", "SUBMITTED"]).optional(),
   imageUrl: z.string().optional().or(z.null()),
-  imageSourceUrl: optionalSourceUrl,
+  imageSourceUrl: optionalNullableString,
   articleType,
   amaExpiresAt: optionalDateString,
 });
@@ -35,7 +35,7 @@ export const createArticleSchemaAdmin = z.object({
   status: z.enum(["DRAFT", "SUBMITTED", "SCHEDULED"]).optional(),
   scheduledAt: optionalDateString,
   imageUrl: z.string().optional().or(z.null()),
-  imageSourceUrl: optionalSourceUrl,
+  imageSourceUrl: optionalNullableString,
   articleType,
   amaExpiresAt: optionalDateString,
   isPinnedToHome: z.boolean().optional(),
