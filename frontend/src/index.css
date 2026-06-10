@@ -1,4 +1,5 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+/* IBM Plex Sans is loaded via <link> in index.html (parallel, non-blocking)
+   instead of a CSS @import, which would serialize: app CSS → fonts CSS → font files. */
 @import "tailwindcss";
 
 @layer base {
