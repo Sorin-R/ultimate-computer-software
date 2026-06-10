@@ -705,10 +705,14 @@ html.dark .ql-snow .ql-background .ql-picker-label svg {
   @apply text-[#b5121b] font-medium hover:text-[#8f0f16] underline;
   overflow-wrap: anywhere;
   word-break: normal;
+  --tw-font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-medium);
+  color: rgb(181, 18, 27);
+  text-dergb(255, 255, 255)nderline;
 }
 
 .article-body .article-media > a {
-  color: white !important;
+  color: white;
   text-decoration: none;
   font-weight: 400;
 }
