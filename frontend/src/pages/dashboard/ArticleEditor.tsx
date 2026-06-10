@@ -811,18 +811,20 @@ export default function ArticleEditor() {
       const index = savedCursorRef.current ?? editor.getSelection()?.index ?? editor.getLength();
       savedCursorRef.current = null;
 
+      editor.insertEmbed(index, "image", trimmedImg, "user");
       if (sourceUrl) {
-        // Use CSS classes (Quill preserves them unlike inline styles)
-        const html = `<div class="article-media img-container"><img src="${trimmedImg}" alt="" /><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="img-source-link">${sourceDomain}</a></div>`;
-        editor.clipboard.dangerouslyPasteHTML(index, html, "user");
+        editor.insertText(index + 1, "\n", "user");
+        const linkHtml = `<p><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${sourceDomain}</a></p>`;
+        editor.clipboard.dangerouslyPasteHTML(index + 2, linkHtml, "user");
+        editor.insertText(index + 3, "\n", "user");
+        editor.setSelection(index + 4, 0);
       } else {
-        editor.insertEmbed(index, "image", trimmedImg, "user");
+        editor.insertText(index + 1, "\n", "user");
+        editor.setSelection(index + 2, 0);
       }
-      editor.insertText(index + 1, "\n", "user");
-      editor.setSelection(index + 2, 0);
     } else {
       const html = sourceUrl
-        ? `<div class="article-media img-container"><img src="${trimmedImg}" alt="" /><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="img-source-link">${sourceDomain}</a></div>`
+        ? `<img src="${trimmedImg}" alt="" /><p><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${sourceDomain}</a></p>`
         : `<img src="${trimmedImg}" alt="" />`;
       setBody((prev) => `${prev}${html}`);
     }
