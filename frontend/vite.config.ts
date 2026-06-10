@@ -9,13 +9,16 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
-          if (id.includes("react") || id.includes("scheduler")) return "vendor-react";
-          if (id.includes("react-router")) return "vendor-router";
-          if (id.includes("axios")) return "vendor-network";
+          // Specific packages first: a bare `includes("react")` would also match
+          // react-quill-new / react-router, pulling the editor into the eager
+          // vendor-react chunk and preloading Quill on every public page.
           if (id.includes("react-quill-new") || id.includes("quill")) return "vendor-editor";
+          if (id.includes("react-router")) return "vendor-router";
           if (id.includes("highlight.js")) return "vendor-highlight";
           if (id.includes("dompurify")) return "vendor-sanitize";
           if (id.includes("qrcode")) return "vendor-qrcode";
+          if (id.includes("axios")) return "vendor-network";
+          if (id.includes("react") || id.includes("scheduler")) return "vendor-react";
           return "vendor-misc";
         },
       },
