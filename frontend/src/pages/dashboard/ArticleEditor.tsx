@@ -235,6 +235,9 @@ function draftKey(id?: string) {
   return id ? `draft_article_${id}` : "draft_article_new";
 }
 
+// Shared card styling for the sidebar / main panels.
+const CARD = "bg-white border border-black/10 rounded-xl shadow-sm";
+
 export default function ArticleEditor() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -329,6 +332,9 @@ export default function ArticleEditor() {
   // ─── K3: AMA / Discussion type ────────────────────────────────────────────
   const [articleType, setArticleType] = useState<"ARTICLE" | "AMA" | "DISCUSSION">("ARTICLE");
   const [amaExpiresAt, setAmaExpiresAt] = useState(""); // datetime-local value
+
+  // Collapsible help panel (new articles only)
+  const [showGuide, setShowGuide] = useState(false);
 
   const selectedCategory = categories.find((cat) => cat.id === categoryId);
 
@@ -1137,6 +1143,38 @@ export default function ArticleEditor() {
     }
   }, [body, title, isAdmin, mainKeyword, categoryId, authorName, originalSourceUrl, selectedTags, scheduledAt, selectedSeriesId, imageUrl, imageSourceUrl, isEdit, id, navigate, articleType, amaExpiresAt, isAdminArticleEdit]);
 
+  // ─── Writer stats (word count / reading time) + SEO derivations ───────────
+  const plainBody = useMemo(() => getPlainTextFromHtml(body), [body]);
+  const wordCount = useMemo(
+    () => (plainBody ? plainBody.split(/\s+/).filter(Boolean).length : 0),
+    [plainBody]
+  );
+  const readingMinutes = Math.max(1, Math.round(wordCount / 200));
+  const permalink = mainKeyword
+    ? mainKeyword.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
+    : "";
+  const trimmedTitleLen = title.trim().length;
+  const titleOk = isAdmin
+    ? trimmedTitleLen > 0
+    : trimmedTitleLen >= MIN_TITLE_LENGTH && trimmedTitleLen <= MAX_TITLE_LENGTH;
+  const keywordInTitle =
+    mainKeyword.trim().length > 0 && title.toLowerCase().includes(mainKeyword.trim().toLowerCase());
+  const seoDescription = plainBody.slice(0, 160);
+
+  // ─── Cmd/Ctrl+S → quick save (Draft, or Save Changes in admin edit) ──────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (saving) return;
+        if (isAdminArticleEdit) handleSubmit();
+        else handleSubmit("DRAFT");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleSubmit, isAdminArticleEdit, saving]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-20">
@@ -1145,92 +1183,133 @@ export default function ArticleEditor() {
     );
   }
 
+  // ─── Primary action buttons (identical workflow, shared by header & footer) ─
+  const actionButtons = (
+    <>
+      {isAdminArticleEdit ? (
+        <>
+          <button
+            onClick={() => handleSubmit()}
+            disabled={saving}
+            className="px-5 py-2 bg-[#b5121b] text-white rounded-lg hover:bg-[#8f0f16] text-sm font-semibold disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+          {scheduleMode && scheduledAt && (
+            <button
+              onClick={() => handleSubmit("SCHEDULED")}
+              disabled={saving}
+              className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50"
+            >
+              {saving ? "Scheduling..." : "Schedule Publication"}
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <button
+            onClick={() => handleSubmit("DRAFT")}
+            disabled={saving}
+            className="px-5 py-2 border border-black/25 rounded-lg hover:bg-neutral-50 text-neutral-700 text-sm font-semibold disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Draft"}
+          </button>
+          {!(isAdmin && scheduleMode && scheduledAt) && (
+            <button
+              onClick={() => handleSubmit("SUBMITTED")}
+              disabled={saving}
+              className="px-5 py-2 bg-[#b5121b] text-white rounded-lg hover:bg-[#8f0f16] text-sm font-semibold disabled:opacity-50"
+            >
+              {saving ? "Submitting..." : "Submit for Review"}
+            </button>
+          )}
+          {isAdmin && scheduleMode && scheduledAt && (
+            <button
+              onClick={() => handleSubmit("SCHEDULED")}
+              disabled={saving}
+              className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50"
+            >
+              {saving ? "Scheduling..." : "Schedule Publication"}
+            </button>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  // ─── Publish checklist (guidance only — never blocks saving) ──────────────
+  const checklist = [
+    { ok: titleOk, label: isAdmin ? "Title added" : `Title is ${MIN_TITLE_LENGTH}–${MAX_TITLE_LENGTH} characters` },
+    { ok: mainKeyword.trim().length > 0, label: "Main keyword set" },
+    { ok: keywordInTitle, label: "Keyword appears in the title" },
+    { ok: wordCount >= 300, label: "At least 300 words" },
+    { ok: Boolean(imageUrl), label: "Featured image added" },
+    { ok: Boolean(categoryId), label: "Category selected" },
+    { ok: selectedTags.length > 0, label: "At least one tag" },
+    ...(!isAdmin ? [{ ok: originalSourceUrl.trim().length > 0, label: "Source backlink provided" }] : []),
+  ];
+  const checklistDone = checklist.filter((c) => c.ok).length;
+
   return (
     <>
       {editorExtraHeight > 0 && (
         <style>{`.ql-editor { min-height: ${320 + editorExtraHeight}px !important; }`}</style>
       )}
       <SEOHead title={isEdit ? "Edit Article" : "New Article"} />
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold [font-family:Georgia,'Times_New_Roman',serif] text-neutral-900">
-          {isEdit ? "Edit Article" : "Create New Article"}
-        </h1>
 
-        {/* C1: Auto-save status + Version History button */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">
-            {autoSaveStatus === "saved" && lastSavedAt
-              ? `Auto-saved ${lastSavedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
-              : autoSaveStatus === "unsaved"
-              ? "Unsaved changes"
-              : null}
-          </span>
+      {/* ─── Sticky action header ─────────────────────────────────────────── */}
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 mb-6 px-4 sm:px-6 py-3 bg-white/90 backdrop-blur border-b border-black/10 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate(isAdminArticleEdit ? "/admin/articles" : "/dashboard/articles")}
+            className="shrink-0 h-9 w-9 grid place-items-center rounded-lg border border-black/15 text-neutral-500 hover:bg-neutral-50"
+            title="Back to articles"
+          >
+            ←
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold [font-family:Georgia,'Times_New_Roman',serif] text-neutral-900 truncate">
+              {isEdit ? "Edit Article" : "Create New Article"}
+            </h1>
+            <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+              <span
+                className={`inline-flex items-center gap-1 ${
+                  autoSaveStatus === "saved" ? "text-emerald-600" : autoSaveStatus === "unsaved" ? "text-amber-600" : ""
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  autoSaveStatus === "saved" ? "bg-emerald-500" : autoSaveStatus === "unsaved" ? "bg-amber-500" : "bg-neutral-300"
+                }`} />
+                {autoSaveStatus === "saved" && lastSavedAt
+                  ? `Draft auto-saved ${lastSavedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                  : autoSaveStatus === "unsaved"
+                  ? "Unsaved changes"
+                  : "Autosave on"}
+              </span>
+              <span className="text-neutral-300">·</span>
+              <span>{wordCount.toLocaleString()} words · {readingMinutes} min read</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
           {isEdit && id && (
             <button
               type="button"
-              onClick={() => {
-                setShowVersionHistory(true);
-                loadVersions();
-              }}
-              className="px-3 py-1.5 text-xs border border-black/25 rounded-lg hover:bg-neutral-50 text-neutral-700 font-medium"
+              onClick={() => { setShowVersionHistory(true); loadVersions(); }}
+              className="px-3 py-2 text-xs border border-black/20 rounded-lg hover:bg-neutral-50 text-neutral-700 font-medium"
             >
-              🕓 Version History
+              🕓 <span className="hidden sm:inline">Version History</span>
             </button>
           )}
+          {actionButtons}
         </div>
       </div>
 
-      {/* C1: Version History panel */}
-      {showVersionHistory && (
-        <div className="fixed inset-0 z-50 flex">
-          <div
-            className="flex-1 bg-black/40"
-            onClick={() => setShowVersionHistory(false)}
-          />
-          <div className="w-80 bg-white shadow-2xl flex flex-col h-full overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-black/10">
-              <h2 className="font-semibold text-neutral-900">Version History</h2>
-              <button
-                onClick={() => setShowVersionHistory(false)}
-                className="text-neutral-400 hover:text-neutral-700 text-xl leading-none"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {versionsLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin h-6 w-6 border-b-2 border-[#b5121b] rounded-full" />
-                </div>
-              ) : versions.length === 0 ? (
-                <p className="text-sm text-neutral-500 text-center py-8">No saved versions yet.</p>
-              ) : (
-                versions.map((v) => (
-                  <div
-                    key={v.id}
-                    className="border border-black/10 rounded-lg p-3 hover:border-[#b5121b]/40 transition-colors"
-                  >
-                    <p className="text-sm font-medium text-neutral-900 line-clamp-2">{v.title}</p>
-                    <p className="text-xs text-neutral-500 mt-1">{formatVersionDate(v.createdAt)}</p>
-                    {v.excerpt && (
-                      <p className="text-xs text-neutral-600 mt-1 line-clamp-2">{v.excerpt}</p>
-                    )}
-                    <button
-                      type="button"
-                      disabled={restoringVersionId === v.id}
-                      onClick={() => handleRestoreVersion(v.id)}
-                      className="mt-2 text-xs text-[#b5121b] hover:underline disabled:opacity-50"
-                    >
-                      {restoringVersionId === v.id ? "Restoring…" : "Restore this version"}
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <p className="px-4 py-3 text-[11px] text-neutral-400 border-t border-black/10">
-              Restoring replaces the current title &amp; body in the editor. Save to make it permanent.
-            </p>
-          </div>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+          {error}
         </div>
       )}
 
@@ -1250,10 +1329,7 @@ export default function ArticleEditor() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                localStorage.removeItem(draftKey());
-                setShowRestorePrompt(false);
-              }}
+              onClick={() => { localStorage.removeItem(draftKey()); setShowRestorePrompt(false); }}
               className="px-3 py-1.5 border border-amber-300 text-amber-800 text-xs rounded-lg hover:bg-amber-100"
             >
               Discard
@@ -1264,8 +1340,9 @@ export default function ArticleEditor() {
 
       {/* C7: Template selector — only for new articles */}
       {!isEdit && !templateApplied && (
-        <div className="mb-6 p-4 bg-white border border-black/15 rounded-lg">
-          <h3 className="text-sm font-semibold text-neutral-900 mb-3">Choose a starting template</h3>
+        <div className={`${CARD} mb-6 p-5`}>
+          <h3 className="text-sm font-semibold text-neutral-900 mb-1">Choose a starting template</h3>
+          <p className="text-xs text-neutral-500 mb-3">Templates pre-fill the editor with a helpful structure. You can change everything afterwards.</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {TEMPLATES.map((tpl) => (
               <button
@@ -1292,540 +1369,560 @@ export default function ArticleEditor() {
         </div>
       )}
 
+      {/* How-to guide — collapsible for new articles */}
       {!isEdit && (
-        <div className="mb-6 p-4 sm:p-5 bg-blue-50 border border-blue-200 rounded-lg">
-          <h2 className="font-semibold text-blue-900 mb-3">📝 How to Create an Article</h2>
-          <div className="text-sm text-blue-800 space-y-2">
-            <p>
-              <span className="font-semibold">1. Article Title:</span> Write a clear, compelling headline (50-60 characters). This will appear as the main heading on your article page.
-            </p>
-            <p>
-              <span className="font-semibold">2. Main Keyword:</span> Enter the primary topic keyword (e.g., "AI automation tools"). This creates your article's URL/permalink automatically.
-            </p>
-            <p>
-              <span className="font-semibold">3. Article Content:</span> Write your article using the visual editor or paste HTML. Include images, links, and formatting to enhance readability.
-            </p>
-            <p>
-              <span className="font-semibold">4. Category &amp; Tags:</span> Select an appropriate technology category and add relevant topic tags to help readers discover your article.
-            </p>
-            <p>
-              <span className="font-semibold">5. Author Name:</span> Enter your name as the article author.
-            </p>
-            <p>
-              <span className="font-semibold">6. Featured Photo:</span> Upload a compelling featured image {isAdmin ? "(any size)" : "(max 3MB)"} that represents your article topic. Image will be optimized to <span className="font-mono font-semibold">896×504px</span> (16:9 landscape) and converted to WebP format.
-            </p>
-            <p>
-              <span className="font-semibold">7. Source URL from Your Website (MANDATORY):</span> You MUST add a backlink to this article on your own website/social network before submitting. In the "Source URL" field, provide the link to your website/social network page that includes a backlink pointing back to our website (ultimatecomputersoftware.com/your-article). This is a required condition for article publication.
-            </p>
-            <p>
-              <span className="font-semibold">8. Submit:</span> Click "Submit for Review" when ready. Your article will be reviewed by moderators before publishing.
-            </p>
-          </div>
+        <details
+          open={showGuide}
+          onToggle={(e) => setShowGuide((e.target as HTMLDetailsElement).open)}
+          className="mb-6 rounded-lg bg-blue-50 border border-blue-200 overflow-hidden"
+        >
+          <summary className="cursor-pointer select-none px-4 sm:px-5 py-3 font-semibold text-blue-900 text-sm marker:content-['']">
+            {showGuide ? "▾" : "▸"} 📝 How to write a great article — guidelines &amp; requirements
+          </summary>
+          <div className="px-4 sm:px-5 pb-5">
+            <div className="text-sm text-blue-800 space-y-2">
+              <p><span className="font-semibold">1. Article Title:</span> Write a clear, compelling headline (50-60 characters). This will appear as the main heading on your article page.</p>
+              <p><span className="font-semibold">2. Main Keyword:</span> Enter the primary topic keyword (e.g., "AI automation tools"). This creates your article's URL/permalink automatically.</p>
+              <p><span className="font-semibold">3. Article Content:</span> Write your article using the visual editor or paste HTML. Include images, links, and formatting to enhance readability.</p>
+              <p><span className="font-semibold">4. Category &amp; Tags:</span> Select an appropriate technology category and add relevant topic tags to help readers discover your article.</p>
+              <p><span className="font-semibold">5. Author Name:</span> Enter your name as the article author.</p>
+              <p><span className="font-semibold">6. Featured Photo:</span> Upload a compelling featured image {isAdmin ? "(any size)" : "(max 3MB)"} that represents your article topic. Image will be optimized to <span className="font-mono font-semibold">896×504px</span> (16:9 landscape) and converted to WebP format.</p>
+              <p><span className="font-semibold">7. Source URL from Your Website (MANDATORY):</span> You MUST add a backlink to this article on your own website/social network before submitting. In the "Source URL" field, provide the link to your website/social network page that includes a backlink pointing back to our website (ultimatecomputersoftware.com/your-article). This is a required condition for article publication.</p>
+              <p><span className="font-semibold">8. Submit:</span> Click "Submit for Review" when ready. Your article will be reviewed by moderators before publishing.</p>
+            </div>
 
-          <div className="mt-4 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg">
-            <h3 className="font-semibold text-red-900 mb-2">⚠️ Content Guidelines</h3>
-            <ul className="text-sm text-red-800 space-y-1 list-disc list-inside">
-              <li><span className="font-semibold">Technology Only:</span> Articles must focus on technology topics</li>
-              <li><span className="font-semibold">No Politics:</span> Do not publish political content</li>
-              <li><span className="font-semibold">No Inappropriate Content:</span> Avoid offensive or harmful material</li>
-              <li><span className="font-semibold">Factual &amp; Relevant:</span> Ensure accuracy and relevance</li>
-              <li><span className="font-semibold">No Spam:</span> No promotional or misleading content</li>
-              <li><span className="font-semibold">No Copyright Infringement:</span> Write original content and cite sources</li>
-              <li><span className="font-semibold">Respect Intellectual Property:</span> Use only original or properly licensed images</li>
-              <li><span className="font-semibold">Mandatory Link Required:</span> You MUST have a backlink on your website before submitting</li>
-            </ul>
-          </div>
+            <div className="mt-4 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg">
+              <h3 className="font-semibold text-red-900 mb-2">⚠️ Content Guidelines</h3>
+              <ul className="text-sm text-red-800 space-y-1 list-disc list-inside">
+                <li><span className="font-semibold">Technology Only:</span> Articles must focus on technology topics</li>
+                <li><span className="font-semibold">No Politics:</span> Do not publish political content</li>
+                <li><span className="font-semibold">No Inappropriate Content:</span> Avoid offensive or harmful material</li>
+                <li><span className="font-semibold">Factual &amp; Relevant:</span> Ensure accuracy and relevance</li>
+                <li><span className="font-semibold">No Spam:</span> No promotional or misleading content</li>
+                <li><span className="font-semibold">No Copyright Infringement:</span> Write original content and cite sources</li>
+                <li><span className="font-semibold">Respect Intellectual Property:</span> Use only original or properly licensed images</li>
+                <li><span className="font-semibold">Mandatory Link Required:</span> You MUST have a backlink on your website before submitting</li>
+              </ul>
+            </div>
 
-          <div className="mt-4 p-3 sm:p-4 bg-orange-50 border border-orange-200 rounded-lg">
-            <p className="text-xs text-orange-800 mb-2">
-              <span className="font-semibold">📧 Intellectual Property Removal:</span> If you believe your copyrighted content has been published without permission, contact:
-            </p>
-            <p className="text-sm font-semibold text-orange-900">
-              <a href="mailto:copyright@ultimatecomputersoftware.com" className="text-blue-600 hover:underline">
-                copyright@ultimatecomputersoftware.com
-              </a>
-            </p>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-          {error}
-        </div>
-      )}
-
-      <div className="space-y-6 bg-white border border-black/15 p-6 sm:p-8">
-
-        {/* Featured Photo */}
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            Article Photo {requiredStar}
-          </label>
-
-          {/* ── Upload vs Embed tabs ── */}
-          <div className="flex gap-0 mb-3 border-b border-black/15">
-            <button
-              type="button"
-              onClick={() => setEmbedMode(false)}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                !embedMode
-                  ? "bg-white border border-black/15 border-b-white text-neutral-900"
-                  : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
-              }`}
-            >
-              📤 Upload &amp; Store
-            </button>
-            <button
-              type="button"
-              onClick={() => setEmbedMode(true)}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                embedMode
-                  ? "bg-white border border-black/15 border-b-white text-neutral-900"
-                  : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
-              }`}
-            >
-              🔗 Embed via URL
-            </button>
-          </div>
-
-          {!embedMode ? (
-            /* ── UPLOAD TAB: copy to our servers ── */
-            <>
-              <p className="text-xs text-neutral-500 mb-2">
-                Upload or fetch an image — it's copied and optimized on our servers.
-                Best for CC0 / licensed images you have rights to.
+            <div className="mt-4 p-3 sm:p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-xs text-orange-800 mb-2">
+                <span className="font-semibold">📧 Intellectual Property Removal:</span> If you believe your copyrighted content has been published without permission, contact:
               </p>
+              <p className="text-sm font-semibold text-orange-900">
+                <a href="mailto:copyright@ultimatecomputersoftware.com" className="text-blue-600 hover:underline">
+                  copyright@ultimatecomputersoftware.com
+                </a>
+              </p>
+            </div>
+          </div>
+        </details>
+      )}
 
-              {/* ── Upload from URL ── */}
-              <div className="mb-3 p-3 border border-blue-200 bg-blue-50/50 rounded-lg">
-                <p className="text-xs font-semibold text-neutral-700 mb-2">🌐 Paste an image URL</p>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={remoteImageUrl}
-                    onChange={(e) => setRemoteImageUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleUploadFromUrl(); }}
-                    placeholder="https://example.com/image.jpg"
-                    disabled={isUploading}
-                    className="flex-1 px-4 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleUploadFromUrl}
-                    disabled={isUploading || !remoteImageUrl.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    {isUploading ? "Loading…" : "Load & Store"}
-                  </button>
-                </div>
-                <p className="text-[11px] text-neutral-500 mt-1.5">
-                  Fetches from the URL, copies to our servers, and optimizes to 896×504 WebP.
-                </p>
-              </div>
+      {/* ─── Two-column workspace ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
 
-              {/* File upload drop zone */}
-              <div
-                onDrop={handleFeaturedImageDrop}
-                onDragOver={handleFeaturedImageDragOver}
-                onDragLeave={handleFeaturedImageDragLeave}
-                className="rounded-lg"
+        {/* ── MAIN COLUMN ── */}
+        <div className="space-y-6 min-w-0">
+
+          {/* Title + permalink */}
+          <section className={`${CARD} p-5 sm:p-6`}>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Article title…"
+              required={!isAdmin}
+              minLength={isAdmin ? undefined : MIN_TITLE_LENGTH}
+              maxLength={isAdmin ? 255 : MAX_TITLE_LENGTH}
+              className="w-full bg-transparent text-2xl sm:text-3xl font-bold [font-family:Georgia,'Times_New_Roman',serif] text-neutral-900 placeholder:text-neutral-300 focus:outline-none"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span
+                className={`text-xs ${
+                  !isAdmin && !titleOk ? "text-red-500" : "text-neutral-500"
+                }`}
               >
-                {imageUrl ? (
-                  <div className="mb-4">
-                    <div
-                      className={`relative inline-block rounded-lg transition ${
-                        isDraggingFeaturedImage
-                          ? "ring-2 ring-[#b5121b] ring-offset-2 ring-offset-white"
-                          : ""
-                      }`}
-                    >
-                      <img
-                        src={imageUrl}
-                        alt="Article preview"
-                        className="max-w-xs h-auto rounded-lg border border-black/15"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
-                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <p className="text-xs text-neutral-500 mt-2">
-                      Click ✕ to remove, or drag &amp; drop a new image to replace.
-                    </p>
-                  </div>
-                ) : (
+                {trimmedTitleLen}/{isAdmin ? 255 : MAX_TITLE_LENGTH} characters
+                {!isAdmin ? ` (min ${MIN_TITLE_LENGTH})` : " (optional for admin)"}
+              </span>
+              {titleOk && trimmedTitleLen > 0 && <span className="text-xs text-emerald-600">✓ good length</span>}
+            </div>
+
+            <div className="mt-4 border-t border-black/10 pt-4">
+              <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                Main Keyword <span className="font-normal text-neutral-400">(SEO permalink)</span> {requiredStar}
+              </label>
+              <input
+                type="text"
+                value={mainKeyword}
+                onChange={(e) => setMainKeyword(e.target.value)}
+                placeholder="e.g. ai automation tools"
+                required={!isAdmin}
+                className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+              />
+              {permalink && (
+                <p className="text-xs text-neutral-500 mt-1.5">
+                  Permalink: <span className="font-mono text-emerald-700">/{permalink}</span>
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* Body editor */}
+          <section className={`${CARD} p-5 sm:p-6`}>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <label className="block text-sm font-semibold text-neutral-800">
+                Article Body {requiredStar}
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsHtmlMode((prev) => !prev)}
+                className="text-xs px-3 py-1.5 rounded-lg border border-black/25 text-neutral-700 hover:bg-neutral-50"
+              >
+                {isHtmlMode ? "◱ Visual Editor" : "⟨⟩ HTML Source"}
+              </button>
+            </div>
+
+            {isHtmlMode ? (
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Write or paste full HTML markup..."
+                className="w-full min-h-[420px] px-4 py-3 border border-black/25 rounded-lg bg-neutral-50 text-neutral-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+              />
+            ) : (
+              <div
+                ref={editorContainerRef}
+                className="relative"
+                style={{
+                  ...((editorExtraHeight > 0) ? { ["--ql-min-height" as string]: `${320 + editorExtraHeight}px` } : {}),
+                }}
+                onDragOver={handleEditorDragOver}
+                onDragLeave={handleEditorDragLeave}
+                onDrop={handleEditorDrop}
+              >
+                <ReactQuill
+                  ref={quillRef}
+                  theme="snow"
+                  value={body}
+                  onChange={setBody}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Write your article. Drag images here or use the Quick Insert buttons below…"
+                />
+
+                {/* Floating inline insert toolbar — appears at cursor */}
+                {inlineToolbar.show && !isDraggingMedia && !isUploadingBodyMedia && !copyrightModal.show && !youtubeModal.show && !imageUrlModal.show && !embedModal.show && (
                   <div
-                    className={`border-2 border-dashed rounded-lg p-6 text-center transition ${
-                      isDraggingFeaturedImage
-                        ? "border-[#b5121b] bg-[#b5121b]/5"
-                        : "border-black/25 hover:border-black/40"
-                    }`}
+                    className="absolute left-8 z-20 flex items-center gap-0.5 pointer-events-auto bg-white border border-black/20 rounded-lg shadow-lg px-1 py-1"
+                    style={{ top: inlineToolbar.top }}
                   >
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      disabled={isUploading}
-                      className="hidden"
-                      id="article-image-input"
-                    />
-                    <label htmlFor="article-image-input" className="cursor-pointer block">
-                      <p className="text-sm font-medium text-neutral-700 mb-1">
-                        {isUploading
-                          ? "Uploading..."
-                          : isDraggingFeaturedImage
-                          ? "Drop image to upload"
-                          : "Click or drag & drop article photo"}
-                      </p>
-                      <p className="text-xs text-neutral-500">
-                        JPEG, PNG, WebP, GIF {isAdmin ? "(any size)" : "(max 3MB)"} → 896×504 WebP
-                      </p>
-                    </label>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null; }}
+                      onClick={triggerBodyImageDialog}
+                      title="Insert Image"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
+                    >
+                      <span>📷</span> Image
+                    </button>
+                    <span className="w-px h-5 bg-black/10 mx-0.5" />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null; }}
+                      onClick={promptForImageUrl}
+                      title="Image from URL"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                    >
+                      <span>🌐</span> URL
+                    </button>
+                    <span className="w-px h-5 bg-black/10 mx-0.5" />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null; }}
+                      onClick={promptForEmbedImage}
+                      title="Embed Image"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                    >
+                      <span>🔗</span> Embed
+                    </button>
+                    <span className="w-px h-5 bg-black/10 mx-0.5" />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null; }}
+                      onClick={promptForYouTube}
+                      title="YouTube Video"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
+                    >
+                      <span>▶️</span> Video
+                    </button>
+                  </div>
+                )}
+
+                {(isDraggingMedia || isUploadingBodyMedia) && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-lg border-4 border-dashed border-[#b5121b] bg-[#b5121b]/10 backdrop-blur-[1px]">
+                    <div className="text-center px-6 py-4 bg-white/95 rounded-xl shadow-lg pointer-events-none">
+                      {isUploadingBodyMedia ? (
+                        <>
+                          <div className="mx-auto mb-3 h-8 w-8 rounded-full border-2 border-[#b5121b] border-t-transparent animate-spin" />
+                          <p className="text-sm font-semibold text-neutral-800">Uploading image…</p>
+                          <p className="text-xs text-neutral-500 mt-1">Optimising to 16:9 WebP</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-4xl mb-1">📥</div>
+                          <p className="text-base font-bold text-[#b5121b]">Drop image to upload</p>
+                          <p className="text-xs text-neutral-600 mt-1">
+                            Auto-optimised to 16:9 WebP{!isAdmin ? " · max 3MB" : ""}
+                          </p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-            </>
-          ) : (
-            /* ── EMBED TAB: hotlink with attribution ── */
-            <div className="p-4 border border-emerald-200 bg-emerald-50/30 rounded-lg">
-              <p className="text-xs text-neutral-600 mb-3">
-                The image stays on the external server — we only display it. No copy is made.
-                <span className="font-semibold"> You should provide the source link</span> for copyright compliance.
-              </p>
+            )}
 
+            <input
+              ref={bodyImageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleBodyImageInput}
+              className="hidden"
+            />
+
+            {/* Quick Insert buttons */}
+            {!isHtmlMode && (
+              <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <button
+                  type="button"
+                  onClick={triggerBodyImageDialog}
+                  disabled={isUploadingBodyMedia}
+                  className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">📷</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-neutral-900">Insert Image</span>
+                    <span className="block text-[11px] text-neutral-500 mt-0.5">Click or drag &amp; drop</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={promptForImageUrl}
+                  disabled={isUploadingBodyMedia}
+                  className="group flex items-center gap-3 p-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/30 hover:border-blue-400 hover:bg-blue-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xl group-hover:bg-blue-200">🌐</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-neutral-900">Image from URL</span>
+                    <span className="block text-[11px] text-neutral-500 mt-0.5">Paste an image URL</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={promptForEmbedImage}
+                  className="group flex items-center gap-3 p-3 border-2 border-dashed border-emerald-300 rounded-xl bg-emerald-50/30 hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-xl group-hover:bg-emerald-200">🔗</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-neutral-900">Embed Image</span>
+                    <span className="block text-[11px] text-neutral-500 mt-0.5">Hotlink + attribution</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={promptForYouTube}
+                  className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">▶️</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-neutral-900">YouTube Video</span>
+                    <span className="block text-[11px] text-neutral-500 mt-0.5">Embeds as 16:9 player</span>
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* Editor footer: word count + media tips */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-black/10 pt-3 text-[11px] text-neutral-500">
+              <span>{wordCount.toLocaleString()} words · ~{readingMinutes} min read</span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span>Images: <span className="font-mono text-neutral-700">896×504 WebP (16:9)</span></span>
+                {!isAdmin && <span>Max upload: <span className="font-mono text-neutral-700">3 MB</span></span>}
+              </div>
+            </div>
+
+            {!isHtmlMode && (
+              <details className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50">
+                <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-neutral-800 marker:content-['']">
+                  ▸ How to add media &amp; tables
+                </summary>
+                <div className="px-4 pb-4">
+                  <ol className="mt-1 space-y-1 text-xs text-neutral-700">
+                    <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">1</span><span><span className="font-semibold">Drag &amp; drop</span> images directly onto the editor.</span></li>
+                    <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">2</span><span>Use the <span className="font-semibold">Quick Insert buttons</span> above for images, image URLs, or YouTube.</span></li>
+                    <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">3</span><span>Use <span className="font-semibold">code-block</span> from the toolbar for syntax-highlighted code.</span></li>
+                    <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">4</span><span><span className="font-semibold">Tables</span> are preserved as protected blocks — switch to <span className="font-semibold">HTML Source</span> to edit their cells.</span></li>
+                  </ol>
+                  <p className="text-xs text-neutral-500 mt-3 pt-3 border-t border-neutral-200">
+                    HTML source mode preserves advanced tags like <code>&lt;section&gt;</code>, <code>&lt;article&gt;</code>, <code>&lt;abbr&gt;</code>, <code>&lt;dl&gt;</code>, <code>&lt;img&gt;</code>, and <code>&lt;hr&gt;</code>.
+                  </p>
+                </div>
+              </details>
+            )}
+          </section>
+        </div>
+
+        {/* ── SIDEBAR ── */}
+        <aside className="space-y-5 lg:sticky lg:top-[84px] self-start">
+
+          {/* Publish / post settings */}
+          <section className={`${CARD} p-5`}>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-3">Publish</h3>
+
+            {/* Publish checklist */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-neutral-600">Checklist</span>
+                <span className="text-xs text-neutral-500">{checklistDone}/{checklist.length}</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden mb-2">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${(checklistDone / checklist.length) * 100}%` }}
+                />
+              </div>
+              <ul className="space-y-1">
+                {checklist.map((c) => (
+                  <li key={c.label} className="flex items-center gap-2 text-xs">
+                    <span className={c.ok ? "text-emerald-600" : "text-neutral-300"}>{c.ok ? "✓" : "○"}</span>
+                    <span className={c.ok ? "text-neutral-600" : "text-neutral-500"}>{c.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Article type */}
+            <div className="border-t border-black/10 pt-3">
+              <label className="block text-xs font-semibold text-neutral-700 mb-2">Article Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["ARTICLE", "AMA", "DISCUSSION"] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setArticleType(type)}
+                    className={`px-2 py-2 text-xs border rounded-lg font-medium transition-colors ${
+                      articleType === type
+                        ? "bg-[#b5121b] text-white border-[#b5121b]"
+                        : "border-black/20 text-neutral-700 hover:bg-neutral-50"
+                    }`}
+                  >
+                    {type === "ARTICLE" ? "📄 Article" : type === "AMA" ? "🎤 AMA" : "💬 Discuss"}
+                  </button>
+                ))}
+              </div>
+              {articleType === "AMA" && (
+                <div className="mt-3 space-y-1">
+                  <label className="text-xs text-neutral-600">AMA ends at (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={amaExpiresAt}
+                    onChange={(e) => setAmaExpiresAt(e.target.value)}
+                    min={new Date(Date.now() + 3_600_000).toISOString().slice(0, 16)}
+                    className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <p className="text-[11px] text-neutral-500">After this time, the AMA thread is marked ended. Leave empty for open-ended.</p>
+                </div>
+              )}
+              {articleType === "DISCUSSION" && (
+                <p className="mt-2 text-[11px] text-neutral-500">
+                  Discussion posts are lightweight posts focused on community conversation rather than long-form content.
+                </p>
+              )}
+            </div>
+
+            {/* C2: Scheduled publishing toggle (admin) */}
+            {isAdmin && (
+              <div className="border-t border-black/10 pt-3 mt-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={scheduleMode}
+                    onChange={(e) => { setScheduleMode(e.target.checked); if (!e.target.checked) setScheduledAt(""); }}
+                    className="accent-[#b5121b] h-4 w-4"
+                  />
+                  <span className="text-xs font-medium text-neutral-700">Schedule for later publication</span>
+                </label>
+                {scheduleMode && (
+                  <div className="mt-2">
+                    <input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                      className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                    />
+                    <p className="text-[11px] text-neutral-500 mt-1">The article will automatically publish at this date/time.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Inline actions (mirror the sticky header) */}
+            <div className="border-t border-black/10 pt-3 mt-3 flex flex-wrap gap-2">
+              {actionButtons}
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-2">Tip: press <kbd className="px-1 py-0.5 rounded border border-black/15 bg-neutral-50 font-mono text-[10px]">⌘/Ctrl + S</kbd> to save quickly.</p>
+          </section>
+
+          {/* Featured image */}
+          <section className={`${CARD} p-5`}>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-1">Featured Photo {requiredStar}</h3>
+
+            <div className="flex gap-0 mb-3 border-b border-black/15">
+              <button
+                type="button"
+                onClick={() => setEmbedMode(false)}
+                className={`px-3 py-2 text-xs font-medium rounded-t-lg transition-colors ${
+                  !embedMode ? "bg-white border border-black/15 border-b-white text-neutral-900" : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
+                }`}
+              >
+                📤 Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmbedMode(true)}
+                className={`px-3 py-2 text-xs font-medium rounded-t-lg transition-colors ${
+                  embedMode ? "bg-white border border-black/15 border-b-white text-neutral-900" : "bg-neutral-50 text-neutral-500 hover:text-neutral-700"
+                }`}
+              >
+                🔗 Embed
+              </button>
+            </div>
+
+            {!embedMode ? (
+              <>
+                <p className="text-[11px] text-neutral-500 mb-2">
+                  Uploaded or fetched images are copied &amp; optimised on our servers (896×504 WebP). Best for images you have rights to.
+                </p>
+
+                {/* Upload from URL */}
+                <div className="mb-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={remoteImageUrl}
+                      onChange={(e) => setRemoteImageUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleUploadFromUrl(); }}
+                      placeholder="Paste image URL…"
+                      disabled={isUploading}
+                      className="flex-1 min-w-0 px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleUploadFromUrl}
+                      disabled={isUploading || !remoteImageUrl.trim()}
+                      className="px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {isUploading ? "…" : "Fetch"}
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  onDrop={handleFeaturedImageDrop}
+                  onDragOver={handleFeaturedImageDragOver}
+                  onDragLeave={handleFeaturedImageDragLeave}
+                  className="rounded-lg"
+                >
+                  {imageUrl ? (
+                    <div>
+                      <div className={`relative rounded-lg transition ${isDraggingFeaturedImage ? "ring-2 ring-[#b5121b] ring-offset-2 ring-offset-white" : ""}`}>
+                        <img src={imageUrl} alt="Article preview" className="w-full h-auto rounded-lg border border-black/15" />
+                        <button
+                          type="button"
+                          onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-neutral-500 mt-2">Click ✕ to remove, or drag &amp; drop a new image to replace.</p>
+                    </div>
+                  ) : (
+                    <div className={`border-2 border-dashed rounded-lg p-5 text-center transition ${isDraggingFeaturedImage ? "border-[#b5121b] bg-[#b5121b]/5" : "border-black/25 hover:border-black/40"}`}>
+                      <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="hidden" id="article-image-input" />
+                      <label htmlFor="article-image-input" className="cursor-pointer block">
+                        <p className="text-2xl mb-1">🖼️</p>
+                        <p className="text-xs font-medium text-neutral-700 mb-1">
+                          {isUploading ? "Uploading..." : isDraggingFeaturedImage ? "Drop image to upload" : "Click or drag & drop"}
+                        </p>
+                        <p className="text-[11px] text-neutral-500">JPEG, PNG, WebP, GIF {isAdmin ? "(any size)" : "(max 3MB)"}</p>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
               <div className="space-y-3">
+                <p className="text-[11px] text-neutral-600">
+                  The image stays on the external server — we only display it.
+                  <span className="font-semibold"> Provide the source link</span> for copyright compliance.
+                </p>
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                    Image URL <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">Image URL <span className="text-red-500">*</span></label>
                   <input
                     type="url"
                     value={embedMode ? imageUrl : ""}
                     onChange={(e) => setImageUrl(e.target.value)}
                     placeholder="https://example.com/photo.jpg"
-                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
-                  <p className="text-[11px] text-neutral-500 mt-1">
-                    Direct URL to the image file (must end with .jpg, .png, .webp, etc. or serve image content-type).
-                  </p>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                    Source / Attribution Link <span className="text-neutral-400">(optional)</span>
-                  </label>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">Source / Attribution Link <span className="text-neutral-400">(optional)</span></label>
                   <input
                     type="url"
                     value={imageSourceUrl}
                     onChange={(e) => setImageSourceUrl(e.target.value)}
                     placeholder="https://example.com/original-page"
-                    className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
-                  <p className="text-[11px] text-neutral-500 mt-1">
-                    Link to the page where the image appears — shown as attribution below the photo.
-                  </p>
+                  <p className="text-[11px] text-neutral-500 mt-1">Shown as attribution below the photo.</p>
                 </div>
-
                 {imageUrl && embedMode && (
-                  <div className="mt-3">
-                    <p className="text-xs font-semibold text-neutral-700 mb-2">Preview:</p>
-                    <div className="relative inline-block">
-                      <img
-                        src={imageUrl}
-                        alt="Embed preview"
-                        className="max-w-xs h-auto rounded-lg border border-black/15"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
-                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                  <div className="relative">
+                    <img
+                      src={imageUrl}
+                      alt="Embed preview"
+                      className="w-full h-auto rounded-lg border border-black/15"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setImageUrl(""); setImageSourceUrl(""); }}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+                    >
+                      ✕
+                    </button>
                   </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </section>
 
-        {/* Article Title */}
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Article Title (H1) {requiredStar}
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Enter your article title"
-            required={!isAdmin}
-            minLength={isAdmin ? undefined : MIN_TITLE_LENGTH}
-            maxLength={isAdmin ? 255 : MAX_TITLE_LENGTH}
-            className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-          />
-          <p
-            className={`mt-1 text-xs ${
-              !isAdmin && (title.trim().length < MIN_TITLE_LENGTH || title.trim().length > MAX_TITLE_LENGTH)
-                ? "text-red-500"
-                : "text-neutral-500"
-            }`}
-          >
-            {title.trim().length}/{isAdmin ? 255 : MAX_TITLE_LENGTH} characters
-            {!isAdmin ? ` (min ${MIN_TITLE_LENGTH})` : " (optional for admin)"}
-          </p>
-        </div>
-
-        {/* Main Keyword */}
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Main Keyword (used for SEO permalink) {requiredStar}
-          </label>
-          <input
-            type="text"
-            value={mainKeyword}
-            onChange={(e) => setMainKeyword(e.target.value)}
-            placeholder="e.g. ai automation tools"
-            required={!isAdmin}
-            className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-          />
-          {mainKeyword && (
-            <p className="text-xs text-neutral-500 mt-1">
-              Permalink: /{mainKeyword.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}
-            </p>
-          )}
-        </div>
-
-        {/* Article Body */}
-        <div>
-          <div className="flex items-center justify-between gap-3 mb-1">
-            <label className="block text-sm font-medium text-neutral-700">
-              Article Body {requiredStar}
-            </label>
-            <button
-              type="button"
-              onClick={() => setIsHtmlMode((prev) => !prev)}
-              className="text-xs px-3 py-1.5 rounded-lg border border-black/25 text-neutral-700 hover:bg-neutral-50"
-            >
-              {isHtmlMode ? "Use Visual Editor" : "Use HTML Source"}
-            </button>
-          </div>
-          {isHtmlMode ? (
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Write or paste full HTML markup..."
-              className="w-full min-h-[320px] px-4 py-3 border border-black/25 rounded-lg bg-white text-neutral-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-            />
-          ) : (
-            <div
-              ref={editorContainerRef}
-              className="relative"
-              style={{
-                // Auto-expand: grow Quill editor when near bottom
-                ...((editorExtraHeight > 0) ? { ["--ql-min-height" as string]: `${320 + editorExtraHeight}px` } : {}),
-              }}
-              onDragOver={handleEditorDragOver}
-              onDragLeave={handleEditorDragLeave}
-              onDrop={handleEditorDrop}
-            >
-              <ReactQuill
-                ref={quillRef}
-                theme="snow"
-                value={body}
-                onChange={setBody}
-                modules={quillModules}
-                formats={quillFormats}
-                placeholder="Write your article. Drag images here or use the Quick Insert buttons below…"
-              />
-
-              {/* Floating inline insert toolbar — appears at cursor */}
-              {inlineToolbar.show && !isDraggingMedia && !isUploadingBodyMedia && !copyrightModal.show && !youtubeModal.show && !imageUrlModal.show && !embedModal.show && (
-                <div
-                  className="absolute left-8 z-20 flex items-center gap-0.5 pointer-events-auto bg-white border border-black/20 rounded-lg shadow-lg px-1 py-1"
-                  style={{ top: inlineToolbar.top }}
-                >
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
-                    }}
-                    onClick={triggerBodyImageDialog}
-                    title="Insert Image"
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
-                  >
-                    <span>📷</span> Image
-                  </button>
-                  <span className="w-px h-5 bg-black/10 mx-0.5" />
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
-                    }}
-                    onClick={promptForImageUrl}
-                    title="Image from URL"
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                  >
-                    <span>🌐</span> URL
-                  </button>
-                  <span className="w-px h-5 bg-black/10 mx-0.5" />
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
-                    }}
-                    onClick={promptForEmbedImage}
-                    title="Embed Image"
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
-                  >
-                    <span>🔗</span> Embed
-                  </button>
-                  <span className="w-px h-5 bg-black/10 mx-0.5" />
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      savedCursorRef.current = quillRef.current?.getEditor()?.getSelection()?.index ?? null;
-                    }}
-                    onClick={promptForYouTube}
-                    title="YouTube Video"
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:text-[#b5121b] hover:bg-[#b5121b]/5 rounded-md transition-colors"
-                  >
-                    <span>▶️</span> Video
-                  </button>
-                </div>
-              )}
-
-              {(isDraggingMedia || isUploadingBodyMedia) && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-lg border-4 border-dashed border-[#b5121b] bg-[#b5121b]/10 backdrop-blur-[1px]">
-                  <div className="text-center px-6 py-4 bg-white/95 rounded-xl shadow-lg pointer-events-none">
-                    {isUploadingBodyMedia ? (
-                      <>
-                        <div className="mx-auto mb-3 h-8 w-8 rounded-full border-2 border-[#b5121b] border-t-transparent animate-spin" />
-                        <p className="text-sm font-semibold text-neutral-800">Uploading image…</p>
-                        <p className="text-xs text-neutral-500 mt-1">Optimising to 16:9 WebP</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-4xl mb-1">📥</div>
-                        <p className="text-base font-bold text-[#b5121b]">Drop image to upload</p>
-                        <p className="text-xs text-neutral-600 mt-1">
-                          Auto-optimised to 16:9 WebP{!isAdmin ? " · max 3MB" : ""}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <input
-            ref={bodyImageInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleBodyImageInput}
-            className="hidden"
-          />
-
-          {/* Quick Insert buttons */}
-          {!isHtmlMode && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <button
-                type="button"
-                onClick={triggerBodyImageDialog}
-                disabled={isUploadingBodyMedia}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">📷</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">Insert Image</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Click or drag & drop</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={promptForImageUrl}
-                disabled={isUploadingBodyMedia}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/30 hover:border-blue-400 hover:bg-blue-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-xl group-hover:bg-blue-200">🌐</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">Image from URL</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Paste an image URL</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={promptForEmbedImage}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-emerald-300 rounded-xl bg-emerald-50/30 hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-xl group-hover:bg-emerald-200">🔗</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">Embed Image</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Hotlink + attribution</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={promptForYouTube}
-                className="group flex items-center gap-3 p-3 border-2 border-dashed border-black/25 rounded-xl bg-white hover:border-[#b5121b] hover:bg-[#b5121b]/5 transition-colors text-left"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#b5121b]/10 text-xl group-hover:bg-[#b5121b]/20">▶️</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-neutral-900">YouTube Video</span>
-                  <span className="block text-[11px] text-neutral-500 mt-0.5">Embeds as 16:9 player</span>
-                </span>
-              </button>
-            </div>
-          )}
-
-          {!isHtmlMode && (
-            <div className="mt-3 rounded-lg border border-neutral-300 bg-white p-4">
-              <h4 className="text-sm font-semibold text-neutral-900">How to add media</h4>
-              <ol className="mt-2 space-y-1 text-xs text-neutral-700">
-                <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">1</span><span><span className="font-semibold">Drag &amp; drop</span> images directly onto the editor.</span></li>
-                <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">2</span><span>Use <span className="font-semibold">Quick Insert buttons</span> above for images, image URLs, or YouTube.</span></li>
-                <li className="flex gap-2"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">3</span><span>Use <span className="font-semibold">code-block</span> from the toolbar for syntax-highlighted code.</span></li>
-              </ol>
-              <div className="mt-3 pt-3 border-t border-neutral-200 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500">
-                <span>Format: <span className="font-mono text-neutral-700">896 × 504 WebP</span></span>
-                <span>Aspect ratio: <span className="font-mono text-neutral-700">16:9</span></span>
-                {!isAdmin && <span>Max size: <span className="font-mono text-neutral-700">3 MB</span></span>}
-              </div>
-            </div>
-          )}
-
-          <p className="text-xs text-neutral-500 mt-2">
-            HTML source mode preserves advanced tags like <code>&lt;section&gt;</code>, <code>&lt;article&gt;</code>, <code>&lt;abbr&gt;</code>, <code>&lt;dl&gt;</code>, <code>&lt;img&gt;</code>, and <code>&lt;hr&gt;</code>.
-          </p>
-        </div>
-
-        {/* Category + Author */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
-              Category {requiredStar}
-            </label>
+          {/* Category */}
+          <section className={`${CARD} p-5`}>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-2">Category {requiredStar}</h3>
             {!showNewCategory ? (
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col gap-2">
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                   required={!isAdmin}
-                  className="flex-1 px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                  className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
                 >
                   <option value="">Select category</option>
                   {categories.map((cat) => (
@@ -1837,407 +1934,294 @@ export default function ArticleEditor() {
                 <button
                   type="button"
                   onClick={() => setShowNewCategory(true)}
-                  className="px-3 py-2 text-sm border border-black/25 rounded-lg hover:bg-neutral-50 whitespace-nowrap"
+                  className="self-start px-3 py-1.5 text-xs border border-black/25 rounded-lg hover:bg-neutral-50"
                 >
-                  + New
+                  + New category
                 </button>
               </div>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <input
                   type="text"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   placeholder="New category name"
-                  className="flex-1 px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                  className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
                 />
-                <button onClick={handleCreateCategory} className="px-3 py-2 bg-[#b5121b] text-white rounded-lg text-sm">Add</button>
-                <button onClick={() => setShowNewCategory(false)} className="px-3 py-2 text-sm border border-black/25 rounded-lg">Cancel</button>
+                <div className="flex gap-2">
+                  <button onClick={handleCreateCategory} className="px-3 py-2 bg-[#b5121b] text-white rounded-lg text-xs">Add</button>
+                  <button onClick={() => setShowNewCategory(false)} className="px-3 py-2 text-xs border border-black/25 rounded-lg">Cancel</button>
+                </div>
               </div>
             )}
             {selectedCategory?.status === "PENDING" && (
-              <p className="mt-1 text-xs text-red-600">This category is pending approval.</p>
+              <p className="mt-2 text-xs text-red-600">This category is pending approval.</p>
             )}
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
-              Author Name {requiredStar}
-            </label>
-            <input
-              type="text"
-              value={authorName}
-              onChange={(e) => setAuthorName(e.target.value)}
-              placeholder={user?.name || "Your name"}
-              required={!isAdmin}
-              className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-            />
-          </div>
-        </div>
-
-        {/* C8: Source URL with cross-posting toggle */}
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <label className="block text-sm font-medium text-neutral-700">
-              Source URL from Your Website {requiredStar}
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isCrossPost}
-                onChange={(e) => {
-                  setIsCrossPost(e.target.checked);
-                  if (!e.target.checked) setOriginalSourceUrl("");
-                }}
-                className="accent-[#b5121b] h-4 w-4"
-              />
-              <span className="text-xs text-neutral-600">
-                I'm cross-posting from my website/social network
-              </span>
-            </label>
-          </div>
-
-          {isCrossPost ? (
-            <>
-              <input
-                type="url"
-                value={originalSourceUrl}
-                onChange={(e) => setOriginalSourceUrl(e.target.value)}
-                placeholder="https://yourwebsite.com/your-article"
-                required={!isAdmin}
-                className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-              />
-              <p className="text-xs text-neutral-500 mt-1">
-                Source URL from Your Website (MANDATORY): You MUST add a backlink to this article on your own website/social network before submitting. In the "Source URL" field, provide the link to your website/social network page that includes a backlink pointing back to our website (ultimatecomputersoftware.com/your-article). This is a required condition for article publication.
-              </p>
-              <p className="text-xs text-amber-700 mt-1 bg-amber-50 px-2 py-1 rounded">
-                ⚠️ Articles without a verified backlink to our site will be rejected.
-              </p>
-            </>
-          ) : (
-            <div className="p-3 border border-black/10 rounded-lg bg-neutral-50">
-              <p className="text-sm text-neutral-600">
-                Source URL from Your Website (MANDATORY): You MUST add a backlink to this article on your own website/social network before submitting. In the "Source URL" field, provide the link to your website/social network page that includes a backlink pointing back to our website (ultimatecomputersoftware.com/your-article). This is a required condition for article publication.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Tags */}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <label className="block text-sm font-medium text-neutral-700">
-              Tags {requiredStar}
-            </label>
-            {!showNewTag && categoryId && (
-              <button
-                type="button"
-                onClick={() => setShowNewTag(true)}
-                className="px-3 py-1.5 text-sm border border-black/25 rounded-lg hover:bg-neutral-50 whitespace-nowrap"
-              >
-                + New Tag
-              </button>
-            )}
-          </div>
-
-          <p className="text-xs text-neutral-500 mb-2">
-            {selectedCategory
-              ? <>Suggested topics for <span className="font-semibold text-neutral-800">{selectedCategory.name}</span>. Pick the ones that apply, or add a custom tag.</>
-              : "Pick a category first — tag suggestions are tailored to the chosen category."}
-          </p>
-
-          {showNewTag && (
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
-                placeholder={selectedCategory ? `Custom tag for ${selectedCategory.name}` : "Custom tag name"}
-                className="flex-1 px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-              />
-              <button
-                type="button"
-                onClick={handleCreateTag}
-                disabled={creatingTag}
-                className="px-3 py-2 bg-[#b5121b] text-white rounded-lg text-sm disabled:opacity-50"
-              >
-                {creatingTag ? "Adding..." : "Add"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowNewTag(false); setNewTagName(""); }}
-                className="px-3 py-2 text-sm border border-black/25 rounded-lg"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-
-          {(() => {
-            const suggested = categoryId ? tags.filter((t) => t.categoryId === categoryId) : [];
-            const selectedFromOtherCategories = tags.filter(
-              (t) => selectedTags.includes(t.id) && t.categoryId !== categoryId
-            );
-            const renderTagButton = (tag: Tag) => (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() =>
-                  setSelectedTags((prev) =>
-                    prev.includes(tag.id) ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]
-                  )
-                }
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  selectedTags.includes(tag.id)
-                    ? "bg-[#b5121b] text-white"
-                    : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
-                }`}
-              >
-                {tag.name}
-              </button>
-            );
-            return (
-              <div className="border border-black/25 rounded-lg p-3 max-h-56 overflow-y-auto space-y-3">
-                {!categoryId && (
-                  <div className="text-center py-6 text-xs text-neutral-500">
-                    Select a category above to see tag suggestions.
-                  </div>
-                )}
-                {categoryId && selectedFromOtherCategories.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-2">Already attached</p>
-                    <div className="flex flex-wrap gap-2">{selectedFromOtherCategories.map(renderTagButton)}</div>
-                  </div>
-                )}
-                {categoryId && suggested.length > 0 && (
-                  <div>
-                    {selectedFromOtherCategories.length > 0 && (
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-2">
-                        Suggested for {selectedCategory?.name}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-2">{suggested.map(renderTagButton)}</div>
-                  </div>
-                )}
-                {categoryId && suggested.length === 0 && selectedFromOtherCategories.length === 0 && (
-                  <div className="text-center py-4 text-xs text-neutral-500">
-                    No tags exist for this category yet. Use <span className="font-semibold">+ New Tag</span> to add one.
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* C3: Article Series */}
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            Article Series <span className="text-neutral-400 font-normal">(optional)</span>
-          </label>
-          <p className="text-xs text-neutral-500 mb-2">
-            Group this article as part of a multi-part series so readers can navigate between parts.
-          </p>
-          {!showNewSeries ? (
-            <div className="flex flex-wrap gap-2">
-              <select
-                value={selectedSeriesId}
-                onChange={(e) => setSelectedSeriesId(e.target.value)}
-                className="flex-1 min-w-[200px] px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-              >
-                <option value="">None — standalone article</option>
-                {series.map((s) => (
-                  <option key={s.id} value={s.id}>{s.title}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setShowNewSeries(true)}
-                className="px-4 py-2 text-sm border border-black/25 rounded-lg hover:bg-neutral-50 whitespace-nowrap"
-              >
-                + New Series
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={newSeriesTitle}
-                onChange={(e) => setNewSeriesTitle(e.target.value)}
-                placeholder="Series title (e.g. Introduction to Machine Learning)"
-                className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
-              />
-              <textarea
-                value={newSeriesDesc}
-                onChange={(e) => setNewSeriesDesc(e.target.value)}
-                placeholder="Short description (optional)"
-                rows={2}
-                className="w-full px-4 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b] resize-none"
-              />
-              <div className="flex gap-2">
+          {/* Tags */}
+          <section className={`${CARD} p-5`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h3 className="text-sm font-semibold text-neutral-900">Tags {requiredStar}</h3>
+              {!showNewTag && categoryId && (
                 <button
                   type="button"
-                  onClick={handleCreateSeries}
-                  disabled={creatingSeries}
-                  className="px-4 py-2 bg-[#b5121b] text-white text-sm rounded-lg disabled:opacity-50"
+                  onClick={() => setShowNewTag(true)}
+                  className="px-2.5 py-1 text-xs border border-black/25 rounded-lg hover:bg-neutral-50 whitespace-nowrap"
                 >
-                  {creatingSeries ? "Creating…" : "Create Series"}
+                  + New
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowNewSeries(false); setNewSeriesTitle(""); setNewSeriesDesc(""); }}
-                  className="px-3 py-2 text-sm border border-black/25 rounded-lg"
-                >
-                  Cancel
-                </button>
-              </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* K3: Article type selector */}
-        <div>
-          <label className="block text-sm font-semibold text-neutral-800 mb-2">
-            Article Type
-          </label>
-          <div className="flex gap-2 flex-wrap">
-            {(["ARTICLE", "AMA", "DISCUSSION"] as const).map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setArticleType(type)}
-                className={`px-4 py-2 text-sm border rounded-lg font-medium transition-colors ${
-                  articleType === type
-                    ? "bg-[#b5121b] text-white border-[#b5121b]"
-                    : "border-black/25 text-neutral-700 hover:bg-neutral-50"
-                }`}
-              >
-                {type === "ARTICLE" ? "📄 Article" : type === "AMA" ? "🎤 AMA" : "💬 Discussion"}
-              </button>
-            ))}
-          </div>
-          {articleType === "AMA" && (
-            <div className="mt-3 space-y-2">
-              <label className="text-sm text-neutral-600">AMA ends at (optional)</label>
-              <input
-                type="datetime-local"
-                value={amaExpiresAt}
-                onChange={(e) => setAmaExpiresAt(e.target.value)}
-                min={new Date(Date.now() + 3_600_000).toISOString().slice(0, 16)}
-                className="px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-              <p className="text-xs text-neutral-500">
-                After this time, the AMA thread will be marked as ended. Leave empty for open-ended.
-              </p>
-            </div>
-          )}
-          {articleType === "DISCUSSION" && (
-            <p className="mt-2 text-xs text-neutral-500">
-              Discussion posts are lightweight posts focused on community conversation rather than long-form content.
+            <p className="text-[11px] text-neutral-500 mb-2">
+              {selectedCategory
+                ? <>Suggestions for <span className="font-semibold text-neutral-800">{selectedCategory.name}</span>. Pick the ones that apply.</>
+                : "Pick a category first — tag suggestions are tailored to it."}
             </p>
-          )}
-        </div>
 
-        {/* C2: Scheduled publishing toggle */}
-        {isAdmin && (
-          <div>
-            <label className="flex items-center gap-3 cursor-pointer select-none mb-2">
-              <input
-                type="checkbox"
-                checked={scheduleMode}
-                onChange={(e) => {
-                  setScheduleMode(e.target.checked);
-                  if (!e.target.checked) setScheduledAt("");
-                }}
-                className="accent-[#b5121b] h-4 w-4"
-              />
-              <span className="text-sm font-medium text-neutral-700">Schedule for later publication</span>
-            </label>
-            {scheduleMode && (
-              <div>
+            {showNewTag && (
+              <div className="flex flex-col gap-2 mb-3">
                 <input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                  min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
-                  className="px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                  type="text"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder={selectedCategory ? `Custom tag for ${selectedCategory.name}` : "Custom tag name"}
+                  className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
                 />
-                <p className="text-xs text-neutral-500 mt-1">
-                  The article will automatically be published at this date/time.
-                </p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={handleCreateTag} disabled={creatingTag} className="px-3 py-2 bg-[#b5121b] text-white rounded-lg text-xs disabled:opacity-50">
+                    {creatingTag ? "Adding..." : "Add"}
+                  </button>
+                  <button type="button" onClick={() => { setShowNewTag(false); setNewTagName(""); }} className="px-3 py-2 text-xs border border-black/25 rounded-lg">Cancel</button>
+                </div>
               </div>
             )}
-          </div>
-        )}
 
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-3 pt-4 border-t border-black/15">
-          {isAdminArticleEdit ? (
-            <>
-              <button
-                onClick={() => handleSubmit()}
-                disabled={saving}
-                className="px-6 py-2.5 bg-[#b5121b] text-white rounded-lg hover:bg-[#8f0f16] font-medium disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
-              {scheduleMode && scheduledAt && (
+            {(() => {
+              const suggested = categoryId ? tags.filter((t) => t.categoryId === categoryId) : [];
+              const selectedFromOtherCategories = tags.filter(
+                (t) => selectedTags.includes(t.id) && t.categoryId !== categoryId
+              );
+              const renderTagButton = (tag: Tag) => (
                 <button
-                  onClick={() => handleSubmit("SCHEDULED")}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                  key={tag.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedTags((prev) =>
+                      prev.includes(tag.id) ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]
+                    )
+                  }
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                    selectedTags.includes(tag.id)
+                      ? "bg-[#b5121b] text-white"
+                      : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
+                  }`}
                 >
-                  {saving ? "Scheduling..." : "Schedule Publication"}
+                  {tag.name}
                 </button>
+              );
+              return (
+                <div className="border border-black/15 rounded-lg p-3 max-h-56 overflow-y-auto space-y-3">
+                  {!categoryId && (
+                    <div className="text-center py-6 text-xs text-neutral-500">Select a category above to see tag suggestions.</div>
+                  )}
+                  {categoryId && selectedFromOtherCategories.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-2">Already attached</p>
+                      <div className="flex flex-wrap gap-2">{selectedFromOtherCategories.map(renderTagButton)}</div>
+                    </div>
+                  )}
+                  {categoryId && suggested.length > 0 && (
+                    <div>
+                      {selectedFromOtherCategories.length > 0 && (
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-2">Suggested for {selectedCategory?.name}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2">{suggested.map(renderTagButton)}</div>
+                    </div>
+                  )}
+                  {categoryId && suggested.length === 0 && selectedFromOtherCategories.length === 0 && (
+                    <div className="text-center py-4 text-xs text-neutral-500">
+                      No tags exist for this category yet. Use <span className="font-semibold">+ New</span> to add one.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {selectedTags.length > 0 && (
+              <p className="mt-2 text-[11px] text-neutral-500">{selectedTags.length} tag{selectedTags.length === 1 ? "" : "s"} selected</p>
+            )}
+          </section>
+
+          {/* Author + Source URL */}
+          <section className={`${CARD} p-5 space-y-4`}>
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-900 mb-2">Author Name {requiredStar}</h3>
+              <input
+                type="text"
+                value={authorName}
+                onChange={(e) => setAuthorName(e.target.value)}
+                placeholder={user?.name || "Your name"}
+                required={!isAdmin}
+                className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+              />
+            </div>
+
+            <div className="border-t border-black/10 pt-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-neutral-900">Source URL {requiredStar}</h3>
+              </div>
+              <label className="flex items-start gap-2 cursor-pointer select-none mb-2">
+                <input
+                  type="checkbox"
+                  checked={isCrossPost}
+                  onChange={(e) => { setIsCrossPost(e.target.checked); if (!e.target.checked) setOriginalSourceUrl(""); }}
+                  className="accent-[#b5121b] h-4 w-4 mt-0.5"
+                />
+                <span className="text-xs text-neutral-600">I'm cross-posting from my website/social network</span>
+              </label>
+
+              {isCrossPost ? (
+                <>
+                  <input
+                    type="url"
+                    value={originalSourceUrl}
+                    onChange={(e) => setOriginalSourceUrl(e.target.value)}
+                    placeholder="https://yourwebsite.com/your-article"
+                    required={!isAdmin}
+                    className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                  />
+                  <p className="text-[11px] text-amber-700 mt-1.5 bg-amber-50 px-2 py-1 rounded">
+                    ⚠️ You MUST include a backlink to ultimatecomputersoftware.com on that page. Articles without a verified backlink are rejected.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-neutral-600 bg-neutral-50 border border-black/10 rounded-lg p-2.5">
+                  Mandatory: add a backlink to this article on your own website/social network, then paste that page's URL here. This is a required condition for publication.
+                </p>
               )}
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => handleSubmit("DRAFT")}
-                disabled={saving}
-                className="px-6 py-2.5 border border-black/25 rounded-lg hover:bg-neutral-50 text-neutral-700 font-medium disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save Draft"}
-              </button>
-              {!(isAdmin && scheduleMode && scheduledAt) && (
+            </div>
+          </section>
+
+          {/* Series */}
+          <section className={`${CARD} p-5`}>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-1">Article Series <span className="text-neutral-400 font-normal text-xs">(optional)</span></h3>
+            <p className="text-[11px] text-neutral-500 mb-2">Group this article into a multi-part series for easy navigation.</p>
+            {!showNewSeries ? (
+              <div className="flex flex-col gap-2">
+                <select
+                  value={selectedSeriesId}
+                  onChange={(e) => setSelectedSeriesId(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                >
+                  <option value="">None — standalone article</option>
+                  {series.map((s) => (
+                    <option key={s.id} value={s.id}>{s.title}</option>
+                  ))}
+                </select>
                 <button
-                  onClick={() => handleSubmit("SUBMITTED")}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-[#b5121b] text-white rounded-lg hover:bg-[#8f0f16] font-medium disabled:opacity-50"
+                  type="button"
+                  onClick={() => setShowNewSeries(true)}
+                  className="self-start px-3 py-1.5 text-xs border border-black/25 rounded-lg hover:bg-neutral-50"
                 >
-                  {saving ? "Submitting..." : "Submit for Review"}
+                  + New Series
                 </button>
-              )}
-              {isAdmin && scheduleMode && scheduledAt && (
-                <button
-                  onClick={() => handleSubmit("SCHEDULED")}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
-                >
-                  {saving ? "Scheduling..." : "Schedule Publication"}
-                </button>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newSeriesTitle}
+                  onChange={(e) => setNewSeriesTitle(e.target.value)}
+                  placeholder="Series title"
+                  className="w-full px-3 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
+                />
+                <textarea
+                  value={newSeriesDesc}
+                  onChange={(e) => setNewSeriesDesc(e.target.value)}
+                  placeholder="Short description (optional)"
+                  rows={2}
+                  className="w-full px-3 py-2 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b] resize-none"
+                />
+                <div className="flex gap-2">
+                  <button type="button" onClick={handleCreateSeries} disabled={creatingSeries} className="px-3 py-2 bg-[#b5121b] text-white text-xs rounded-lg disabled:opacity-50">
+                    {creatingSeries ? "Creating…" : "Create Series"}
+                  </button>
+                  <button type="button" onClick={() => { setShowNewSeries(false); setNewSeriesTitle(""); setNewSeriesDesc(""); }} className="px-3 py-2 text-xs border border-black/25 rounded-lg">Cancel</button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* SEO preview */}
+          <section className={`${CARD} p-5`}>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-1">Search Preview</h3>
+            <p className="text-[11px] text-neutral-500 mb-3">How this article may appear in Google search results.</p>
+            <div className="border border-black/10 rounded-lg p-3 bg-white">
+              <p className="text-[11px] text-neutral-600 truncate">
+                ultimatecomputersoftware.com{permalink ? ` › ${permalink}` : ""}
+              </p>
+              <p className="text-[15px] leading-snug text-[#1a0dab] truncate mt-0.5">
+                {title.trim() || "Your article title appears here"}
+              </p>
+              <p className="text-xs text-neutral-600 mt-0.5 line-clamp-2">
+                {seoDescription || "Start writing — the first sentences of your article become the search description."}
+              </p>
+            </div>
+          </section>
+        </aside>
       </div>
+
+      {/* C1: Version History panel */}
+      {showVersionHistory && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/40" onClick={() => setShowVersionHistory(false)} />
+          <div className="w-80 bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-black/10">
+              <h2 className="font-semibold text-neutral-900">Version History</h2>
+              <button onClick={() => setShowVersionHistory(false)} className="text-neutral-400 hover:text-neutral-700 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {versionsLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin h-6 w-6 border-b-2 border-[#b5121b] rounded-full" />
+                </div>
+              ) : versions.length === 0 ? (
+                <p className="text-sm text-neutral-500 text-center py-8">No saved versions yet.</p>
+              ) : (
+                versions.map((v) => (
+                  <div key={v.id} className="border border-black/10 rounded-lg p-3 hover:border-[#b5121b]/40 transition-colors">
+                    <p className="text-sm font-medium text-neutral-900 line-clamp-2">{v.title}</p>
+                    <p className="text-xs text-neutral-500 mt-1">{formatVersionDate(v.createdAt)}</p>
+                    {v.excerpt && <p className="text-xs text-neutral-600 mt-1 line-clamp-2">{v.excerpt}</p>}
+                    <button
+                      type="button"
+                      disabled={restoringVersionId === v.id}
+                      onClick={() => handleRestoreVersion(v.id)}
+                      className="mt-2 text-xs text-[#b5121b] hover:underline disabled:opacity-50"
+                    >
+                      {restoringVersionId === v.id ? "Restoring…" : "Restore this version"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <p className="px-4 py-3 text-[11px] text-neutral-400 border-t border-black/10">
+              Restoring replaces the current title &amp; body in the editor. Save to make it permanent.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* YouTube modal */}
       {youtubeModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <div className="p-6">
-              <h3 className="text-base font-bold text-neutral-900 mb-1">
-                ▶️ Insert YouTube Video
-              </h3>
-              <p className="text-xs text-neutral-500 mb-4">
-                Paste a YouTube URL to embed a 16:9 player in the article.
-              </p>
-
+              <h3 className="text-base font-bold text-neutral-900 mb-1">▶️ Insert YouTube Video</h3>
+              <p className="text-xs text-neutral-500 mb-4">Paste a YouTube URL to embed a 16:9 player in the article.</p>
               <div>
-                <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                  YouTube URL <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">YouTube URL <span className="text-red-500">*</span></label>
                 <input
                   type="url"
                   value={youtubeModal.url}
@@ -2247,27 +2231,12 @@ export default function ArticleEditor() {
                   autoFocus
                   className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#b5121b]"
                 />
-                <p className="text-[11px] text-neutral-500 mt-1">
-                  Supports youtube.com, youtu.be, and youtube-nocookie.com URLs.
-                </p>
+                <p className="text-[11px] text-neutral-500 mt-1">Supports youtube.com, youtu.be, and youtube-nocookie.com URLs.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
-              <button
-                type="button"
-                onClick={handleYoutubeModalCancel}
-                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleYoutubeModalInsert}
-                disabled={!youtubeModal.url.trim()}
-                className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Insert Video
-              </button>
+              <button type="button" onClick={handleYoutubeModalCancel} className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white">Cancel</button>
+              <button type="button" onClick={handleYoutubeModalInsert} disabled={!youtubeModal.url.trim()} className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Insert Video</button>
             </div>
           </div>
         </div>
@@ -2278,17 +2247,10 @@ export default function ArticleEditor() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <div className="p-6">
-              <h3 className="text-base font-bold text-neutral-900 mb-1">
-                🌐 Insert Image from URL
-              </h3>
-              <p className="text-xs text-neutral-500 mb-4">
-                Paste an image URL — it'll be fetched, optimized to 896×504 WebP, and stored on our servers.
-              </p>
-
+              <h3 className="text-base font-bold text-neutral-900 mb-1">🌐 Insert Image from URL</h3>
+              <p className="text-xs text-neutral-500 mb-4">Paste an image URL — it'll be fetched, optimized to 896×504 WebP, and stored on our servers.</p>
               <div>
-                <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                  Image URL <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">Image URL <span className="text-red-500">*</span></label>
                 <input
                   type="url"
                   value={imageUrlModal.url}
@@ -2298,27 +2260,12 @@ export default function ArticleEditor() {
                   autoFocus
                   className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-[11px] text-neutral-500 mt-1">
-                  The image will be downloaded and hosted on our servers — you'll be asked to confirm copyright before it proceeds.
-                </p>
+                <p className="text-[11px] text-neutral-500 mt-1">The image will be downloaded and hosted on our servers — you'll be asked to confirm copyright before it proceeds.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
-              <button
-                type="button"
-                onClick={handleImageUrlModalCancel}
-                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleImageUrlModalSubmit}
-                disabled={!imageUrlModal.url.trim()}
-                className="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next: Confirm Rights
-              </button>
+              <button type="button" onClick={handleImageUrlModalCancel} className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white">Cancel</button>
+              <button type="button" onClick={handleImageUrlModalSubmit} disabled={!imageUrlModal.url.trim()} className="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next: Confirm Rights</button>
             </div>
           </div>
         </div>
@@ -2329,18 +2276,11 @@ export default function ArticleEditor() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white border border-black/15 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <div className="p-6">
-              <h3 className="text-base font-bold text-neutral-900 mb-1">
-                🔗 Embed Image via URL
-              </h3>
-              <p className="text-xs text-neutral-500 mb-4">
-                The image stays on the external server — no copy is made.
-              </p>
-
+              <h3 className="text-base font-bold text-neutral-900 mb-1">🔗 Embed Image via URL</h3>
+              <p className="text-xs text-neutral-500 mb-4">The image stays on the external server — no copy is made.</p>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                    Image URL <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">Image URL <span className="text-red-500">*</span></label>
                   <input
                     type="url"
                     value={embedModal.imgUrl}
@@ -2351,11 +2291,8 @@ export default function ArticleEditor() {
                     className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                    Source / Attribution Link <span className="text-neutral-400">(optional)</span>
-                  </label>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">Source / Attribution Link <span className="text-neutral-400">(optional)</span></label>
                   <input
                     type="url"
                     value={embedModal.sourceUrl}
@@ -2364,28 +2301,13 @@ export default function ArticleEditor() {
                     placeholder="https://example.com/original-page"
                     className="w-full px-4 py-2.5 border border-black/25 rounded-lg bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
-                  <p className="text-[11px] text-neutral-500 mt-1">
-                    Shown as attribution below the image for copyright compliance.
-                  </p>
+                  <p className="text-[11px] text-neutral-500 mt-1">Shown as attribution below the image for copyright compliance.</p>
                 </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
-              <button
-                type="button"
-                onClick={handleEmbedModalCancel}
-                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleEmbedModalInsert}
-                disabled={!embedModal.imgUrl.trim()}
-                className="px-5 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Insert Image
-              </button>
+              <button type="button" onClick={handleEmbedModalCancel} className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white">Cancel</button>
+              <button type="button" onClick={handleEmbedModalInsert} disabled={!embedModal.imgUrl.trim()} className="px-5 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Insert Image</button>
             </div>
           </div>
         </div>
@@ -2399,48 +2321,24 @@ export default function ArticleEditor() {
               <div className="flex items-start gap-3">
                 <span className="text-3xl flex-shrink-0">⚠️</span>
                 <div>
-                  <h3 className="text-base font-bold text-neutral-900 mb-2">
-                    Do you have the rights to use this image?
-                  </h3>
+                  <h3 className="text-base font-bold text-neutral-900 mb-2">Do you have the rights to use this image?</h3>
                   <p className="text-sm text-neutral-600 leading-relaxed">
-                    By uploading, you confirm that you own the image or have permission to use it.
-                    Unauthorized use may violate copyright law.
+                    By uploading, you confirm that you own the image or have permission to use it. Unauthorized use may violate copyright law.
                   </p>
                   <p className="mt-3 text-sm text-neutral-600">
-                    If you're not sure, use the{" "}
-                    <span className="font-semibold">🔗 Embed via URL</span>
-                    {" "}tab instead — the image stays on the external server and no copy is made.
+                    If you're not sure, use the <span className="font-semibold">🔗 Embed via URL</span> tab instead — the image stays on the external server and no copy is made.
                   </p>
                   <p className="mt-3 text-xs text-neutral-500">
                     Please review our{" "}
-                    <a
-                      href="/copyright"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#b5121b] underline hover:text-[#8f0f16] font-medium"
-                    >
-                      Copyright Policy
-                    </a>
+                    <a href="/copyright" target="_blank" rel="noopener noreferrer" className="text-[#b5121b] underline hover:text-[#8f0f16] font-medium">Copyright Policy</a>
                     {" "}for more information.
                   </p>
                 </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-neutral-50 border-t border-black/10">
-              <button
-                type="button"
-                onClick={handleCopyrightCancel}
-                className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyrightConfirm}
-                className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg"
-              >
-                I have the rights
-              </button>
+              <button type="button" onClick={handleCopyrightCancel} className="px-5 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-black/15 rounded-lg bg-white">Cancel</button>
+              <button type="button" onClick={handleCopyrightConfirm} className="px-5 py-2 text-sm font-medium text-white bg-[#b5121b] hover:bg-[#8f0f16] rounded-lg">I have the rights</button>
             </div>
           </div>
         </div>
