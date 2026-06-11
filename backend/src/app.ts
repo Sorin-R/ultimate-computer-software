@@ -10,6 +10,7 @@ import { env } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import { attachCsrfCookie, requireCsrfProtection } from "./middleware/csrf";
 import { publishScheduledArticles } from "./controllers/articleController";
+import { recoverStuckArticleAudio } from "./services/articleAudioService";
 import authRoutes from "./routes/auth";
 import articleRoutes from "./routes/articles";
 import storyRoutes from "./routes/stories";
@@ -103,7 +104,16 @@ cron.schedule("* * * * *", () => {
   publishScheduledArticles().catch((err) =>
     console.error("[cron] publishScheduledArticles error:", err)
   );
+  recoverStuckArticleAudio().catch((err) =>
+    console.error("[cron] recoverStuckArticleAudio error:", err)
+  );
 });
+
+// Recover audio jobs orphaned by the previous container shutdown right away
+// rather than waiting for the first cron tick.
+recoverStuckArticleAudio().catch((err) =>
+  console.error("[startup] recoverStuckArticleAudio error:", err)
+);
 
 // Serve static files from uploads directory with long-lived cache headers.
 // H4: immutable + 30-day maxAge so browsers and CDNs cache uploaded images

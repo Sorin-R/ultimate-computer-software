@@ -245,3 +245,27 @@ export function queueArticleAudioGeneration(article: ArticleAudioSource): void {
     console.error("[articleAudio] generation failed:", error);
   });
 }
+
+/**
+ * Generation runs in-memory, so a container restart mid-job leaves the row
+ * stuck at PROCESSING forever: the admin endpoint early-returns on PROCESSING
+ * and the UI shows no Retry button in that state. A legitimate job cannot
+ * outlive ~5 minutes (TTS and ffmpeg each abort at OPENROUTER_TTS_TIMEOUT_MS),
+ * so anything PROCESSING for 10+ minutes is orphaned — flip it to FAILED,
+ * which surfaces the Retry button in the admin UI. Idempotent; safe to run
+ * from every cluster worker and on a schedule.
+ */
+export async function recoverStuckArticleAudio(): Promise<void> {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const { count } = await prisma.article.updateMany({
+    where: { audioStatus: "PROCESSING", updatedAt: { lt: cutoff } },
+    data: {
+      audioStatus: "FAILED",
+      audioError:
+        "Audio generation was interrupted (server restarted mid-job). Use Retry to regenerate.",
+    },
+  });
+  if (count > 0) {
+    console.log(`[articleAudio] reset ${count} stuck PROCESSING article(s) to FAILED`);
+  }
+}
