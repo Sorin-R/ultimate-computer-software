@@ -9,11 +9,16 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
-          // Specific packages first: a bare `includes("react")` would also match
-          // react-quill-new / react-router, pulling the editor into the eager
-          // vendor-react chunk and preloading Quill on every public page.
-          if (id.includes("react-quill-new") || id.includes("quill")) return "vendor-editor";
-          if (id.includes("react-router")) return "vendor-router";
+          // Match exact package path segments. Two traps here:
+          // 1. A bare includes("react") also matches react-quill-new /
+          //    react-router, dragging the editor into the eager react chunk.
+          // 2. Rolldown (Vite 8) groups can capture a matched module's
+          //    still-unclaimed dependencies, so the react group must be
+          //    declared BEFORE the editor group or React itself gets pulled
+          //    into vendor-editor and preloaded on every public page.
+          if (/node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "vendor-react";
+          if (/node_modules[\\/]react-router/.test(id)) return "vendor-router";
+          if (/node_modules[\\/](react-quill-new|quill)/.test(id)) return "vendor-editor";
           if (id.includes("highlight.js")) return "vendor-highlight";
           if (id.includes("dompurify")) return "vendor-sanitize";
           if (id.includes("qrcode")) return "vendor-qrcode";
