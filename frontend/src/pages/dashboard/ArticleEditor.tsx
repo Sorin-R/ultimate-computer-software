@@ -194,6 +194,7 @@ export default function ArticleEditor() {
   // ─── Core form fields ─────────────────────────────────────────────────────
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const originalBodyRef = useRef<string>(""); // stores original body with tables for restoration
   const [categoryId, setCategoryId] = useState("");
   const [authorName, setAuthorName] = useState("");
   const [originalSourceUrl, setOriginalSourceUrl] = useState("");
@@ -322,6 +323,7 @@ export default function ArticleEditor() {
 
           setTitle(a.title || "");
           setBody(a.body || "");
+          originalBodyRef.current = a.body || "";
           setCategoryId(a.categoryId || a.category?.id || "");
           setAuthorName(a.authorName || "");
           setOriginalSourceUrl(a.originalSourceUrl || "");
@@ -1021,9 +1023,27 @@ export default function ArticleEditor() {
 
     setSaving(true);
     try {
+      // Protect tables: Quill strips them, so restore from original body if lost
+      let savedBody = body;
+      const origTables = originalBodyRef.current.match(/<table\b[\s\S]*?<\/table>/gi) || [];
+      const newTables = (typeof savedBody === 'string' ? savedBody : '').match(/<table\b[\s\S]*?<\/table>/gi) || [];
+      if (origTables.length > 0 && newTables.length < origTables.length) {
+        // Tables were lost during editing — restore them
+        for (const table of origTables) {
+          if (!(typeof savedBody === 'string' ? savedBody : '').includes(table.slice(0, 50))) {
+            // Insert restored table after the first <h2> heading or at the end
+            savedBody = (typeof savedBody === 'string' ? savedBody : '').replace(
+              /(<\/h2>)/i,
+              `$1\n${table}\n`
+            );
+          }
+        }
+        console.log('Restored lost tables');
+      }
+
       const payload: Record<string, unknown> = {
         title: trimmedTitle,
-        body,
+        body: savedBody,
         categoryId,
         authorName: authorName.trim(),
         originalSourceUrl: originalSourceUrl.trim() || null,
