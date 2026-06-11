@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import ReactQuill from "react-quill-new";
+import ReactQuill, { Quill } from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import api from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
@@ -144,7 +144,46 @@ const quillFormats = [
   "blockquote",
   "code-block",
   "code",
+  "tableEmbed",
 ];
+
+// ─── Table support ────────────────────────────────────────────────────────────
+// react-quill-new (Quill 2) ships no table blot, so it silently strips <table>
+// markup when HTML is loaded into the editor and writes the table-less version
+// back into React state. We register a read-only block embed that holds each
+// table as a single atomic unit, plus a clipboard matcher so tables survive the
+// HTML → Delta → HTML round trip at their original position. The wrapper is
+// stripped again on save (see handleSubmit) so stored HTML stays clean.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const TABLE_EMBED_CLASS = "ql-table-embed";
+const BlockEmbed: any = Quill.import("blots/block/embed");
+
+class TableEmbed extends BlockEmbed {
+  static create(value: string) {
+    const node = super.create() as HTMLElement;
+    node.setAttribute("contenteditable", "false");
+    node.innerHTML = value ?? "";
+    return node;
+  }
+
+  static value(node: HTMLElement) {
+    return node.innerHTML;
+  }
+}
+TableEmbed.blotName = "tableEmbed";
+TableEmbed.tagName = "DIV";
+TableEmbed.className = TABLE_EMBED_CLASS;
+
+Quill.register(TableEmbed, true);
+
+// Clipboard matcher: turn every <table> encountered while parsing pasted/loaded
+// HTML into a single tableEmbed insert, discarding the per-cell delta the
+// default matchers would otherwise produce.
+function tableClipboardMatcher(node: Node) {
+  const Delta: any = Quill.import("delta");
+  return new Delta().insert({ tableEmbed: (node as HTMLElement).outerHTML });
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const MIN_TITLE_LENGTH = 50;
 const MAX_TITLE_LENGTH = 60;
@@ -155,6 +194,21 @@ function getPlainTextFromHtml(html: string): string {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Remove the read-only wrapper Quill renders around tables (see TableEmbed),
+ * leaving the bare <table> markup. Uses DOM parsing rather than a regex so
+ * tables that themselves contain <div> elements in their cells unwrap correctly.
+ */
+function unwrapTableEmbeds(html: string): string {
+  if (!html || !html.includes(TABLE_EMBED_CLASS)) return html;
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  container.querySelectorAll(`div.${TABLE_EMBED_CLASS}`).forEach((wrapper) => {
+    wrapper.replaceWith(...Array.from(wrapper.childNodes));
+  });
+  return container.innerHTML;
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -194,7 +248,6 @@ export default function ArticleEditor() {
   // ─── Core form fields ─────────────────────────────────────────────────────
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const originalBodyRef = useRef<string>(""); // stores original body with tables for restoration
   const [categoryId, setCategoryId] = useState("");
   const [authorName, setAuthorName] = useState("");
   const [originalSourceUrl, setOriginalSourceUrl] = useState("");
@@ -323,7 +376,6 @@ export default function ArticleEditor() {
 
           setTitle(a.title || "");
           setBody(a.body || "");
-          originalBodyRef.current = a.body || "";
           setCategoryId(a.categoryId || a.category?.id || "");
           setAuthorName(a.authorName || "");
           setOriginalSourceUrl(a.originalSourceUrl || "");
@@ -901,7 +953,10 @@ export default function ArticleEditor() {
           video: promptForYouTube,
         },
       },
-      clipboard: { matchVisual: false },
+      clipboard: {
+        matchVisual: false,
+        matchers: [["table", tableClipboardMatcher]] as [string, typeof tableClipboardMatcher][],
+      },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isAdmin]
@@ -1023,23 +1078,10 @@ export default function ArticleEditor() {
 
     setSaving(true);
     try {
-      // Protect tables: Quill strips them, so restore from original body if lost
-      let savedBody = body;
-      const origTables = originalBodyRef.current.match(/<table\b[\s\S]*?<\/table>/gi) || [];
-      const newTables = (typeof savedBody === 'string' ? savedBody : '').match(/<table\b[\s\S]*?<\/table>/gi) || [];
-      if (origTables.length > 0 && newTables.length < origTables.length) {
-        // Tables were lost during editing — restore them
-        for (const table of origTables) {
-          if (!(typeof savedBody === 'string' ? savedBody : '').includes(table.slice(0, 50))) {
-            // Insert restored table after the first <h2> heading or at the end
-            savedBody = (typeof savedBody === 'string' ? savedBody : '').replace(
-              /(<\/h2>)/i,
-              `$1\n${table}\n`
-            );
-          }
-        }
-        console.log('Restored lost tables');
-      }
+      // Tables are held inside read-only <div class="ql-table-embed"> wrappers
+      // while in the editor (see TableEmbed). Unwrap them so the stored HTML
+      // contains bare <table> markup exactly as authored.
+      const savedBody = unwrapTableEmbeds(body);
 
       const payload: Record<string, unknown> = {
         title: trimmedTitle,
