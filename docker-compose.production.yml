@@ -34,7 +34,18 @@ services:
       - ucs_uploads:/app/backend/uploads
     labels:
       traefik.enable: "true"
-      traefik.http.routers.ucs.rule: "Host(`ultimatecomputersoftware.com`) || Host(`www.ultimatecomputersoftware.com`)"
+      # Middleware: 301 redirect non-www to www (fixes Google "Duplicate without user-selected canonical")
+      traefik.http.middlewares.ucs-www-redirect.redirectregex.regex: "^https?://ultimatecomputersoftware\\.com/(.*)"
+      traefik.http.middlewares.ucs-www-redirect.redirectregex.replacement: "https://www.ultimatecomputersoftware.com/$${1}"
+      traefik.http.middlewares.ucs-www-redirect.redirectregex.permanent: "true"
+      # Router: non-www → 301 redirect to www
+      traefik.http.routers.ucs-nonwww.rule: "Host(`ultimatecomputersoftware.com`)"
+      traefik.http.routers.ucs-nonwww.entrypoints: websecure
+      traefik.http.routers.ucs-nonwww.tls.certresolver: letsencrypt
+      traefik.http.routers.ucs-nonwww.middlewares: ucs-www-redirect
+      traefik.http.routers.ucs-nonwww.service: ucs
+      # Router: www → main app
+      traefik.http.routers.ucs.rule: "Host(`www.ultimatecomputersoftware.com`)"
       traefik.http.routers.ucs.entrypoints: websecure
       traefik.http.routers.ucs.tls.certresolver: letsencrypt
       traefik.http.services.ucs.loadbalancer.server.port: "4000"
